@@ -67,4 +67,18 @@ export const categoriesRouter = router({
         .set(data)
         .where(and(eq(categories.id, id), eq(categories.userId, ctx.userId)));
     }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Move children to root before deleting
+      await ctx.db
+        .update(categories)
+        .set({ parentId: null })
+        .where(and(eq(categories.parentId, input.id), eq(categories.userId, ctx.userId)));
+
+      await ctx.db
+        .delete(categories)
+        .where(and(eq(categories.id, input.id), eq(categories.userId, ctx.userId)));
+    }),
 });

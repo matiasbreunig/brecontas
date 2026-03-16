@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 import superjson from "superjson";
 import { SessionProvider } from "next-auth/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { MonthProvider } from "@/hooks/use-month";
 
 function getBaseUrl() {
   if (typeof window !== "undefined") return "";
@@ -37,7 +38,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
-            {children}
+            <MonthProvider>
+              {children}
+            </MonthProvider>
           </TooltipProvider>
         </QueryClientProvider>
       </trpc.Provider>

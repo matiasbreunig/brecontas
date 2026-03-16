@@ -459,3 +459,22 @@ export const aiClassificationsRelations = relations(aiClassifications, ({ one })
   transaction: one(transactions, { fields: [aiClassifications.transactionId], references: [transactions.id] }),
   user: one(users, { fields: [aiClassifications.userId], references: [users.id] }),
 }));
+
+export const recurringTemplatesRelations = relations(recurringTemplates, ({ one }) => ({
+  user: one(users, { fields: [recurringTemplates.userId], references: [users.id] }),
+  account: one(accounts, { fields: [recurringTemplates.accountId], references: [accounts.id] }),
+  card: one(cards, { fields: [recurringTemplates.cardId], references: [cards.id] }),
+  beneficiary: one(beneficiaries, { fields: [recurringTemplates.beneficiaryId], references: [beneficiaries.id] }),
+  category: one(categories, { fields: [recurringTemplates.categoryId], references: [categories.id] }),
+}));
+
+export const importsRelations = relations(imports, ({ one }) => ({
+  user: one(users, { fields: [imports.userId], references: [users.id] }),
+  account: one(accounts, { fields: [imports.accountId], references: [accounts.id] }),
+}));
+
+export const reconciliationRulesRelations = relations(reconciliationRules, ({ one }) => ({
+  user: one(users, { fields: [reconciliationRules.userId], references: [users.id] }),
+  beneficiary: one(beneficiaries, { fields: [reconciliationRules.beneficiaryId], references: [beneficiaries.id] }),
+  category: one(categories, { fields: [reconciliationRules.categoryId], references: [categories.id] }),
+}));
