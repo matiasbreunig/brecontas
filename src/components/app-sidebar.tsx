@@ -9,16 +9,34 @@ import {
   ArrowLeftRight,
   Settings,
   LogOut,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Inbox,
+  Upload,
+  BarChart3,
+  CreditCard,
+  Repeat,
+  Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Separator } from "@/components/ui/separator";
+import { useMonth } from "@/hooks/use-month";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useState, useEffect } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/contas", label: "Contas", icon: Wallet },
   { href: "/transacoes", label: "Transações", icon: ArrowLeftRight },
+  { href: "/importar", label: "Importar", icon: Upload },
+  { href: "/faturas", label: "Faturas", icon: CreditCard },
+  { href: "/recorrentes", label: "Recorrentes", icon: Repeat },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
@@ -26,21 +44,57 @@ interface AppSidebarProps {
   user: { name?: string | null; email?: string | null };
 }
 
-export function AppSidebar({ user }: AppSidebarProps) {
+/** Sidebar navigation content — shared between desktop and mobile drawer */
+function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { month, prevMonth, nextMonth, goToToday, isCurrentMonth } = useMonth();
+
+  const monthLabel = format(month, "MMMM", { locale: ptBR });
+  const yearLabel = format(month, "yyyy");
 
   return (
-    <aside className="flex h-screen w-60 flex-col border-r bg-muted/30">
-      <div className="flex items-center gap-2 p-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
+    <>
+      {/* Logo */}
+      <div className="flex items-center gap-3 px-5 py-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground font-bold text-base">
           B
         </div>
-        <span className="font-semibold text-lg">Brecontas</span>
+        <span className="font-semibold text-lg tracking-tight">Brecontas</span>
       </div>
 
-      <Separator />
+      {/* Month Selector */}
+      <div className="mx-3 mb-4 rounded-xl bg-sidebar-accent/50 p-3">
+        <div className="flex items-center justify-between mb-1">
+          <button
+            onClick={prevMonth}
+            className="rounded-lg p-1.5 hover:bg-sidebar-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="text-center">
+            <p className="text-sm font-semibold capitalize">{monthLabel}</p>
+            <p className="text-xs text-sidebar-foreground/60">{yearLabel}</p>
+          </div>
+          <button
+            onClick={nextMonth}
+            className="rounded-lg p-1.5 hover:bg-sidebar-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+        {!isCurrentMonth && (
+          <button
+            onClick={goToToday}
+            className="w-full mt-1 text-[11px] text-sidebar-primary hover:text-sidebar-primary/80 font-medium transition-colors flex items-center justify-center gap-1"
+          >
+            <CalendarDays className="h-3 w-3" />
+            Ir para mês atual
+          </button>
+        )}
+      </div>
 
-      <nav className="flex-1 space-y-1 p-2">
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 px-3">
         {navItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"
@@ -50,43 +104,103 @@ export function AppSidebar({ user }: AppSidebarProps) {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                "flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-all duration-150 min-h-[44px]",
                 isActive
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-sm"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
-              <item.icon className="h-4 w-4" />
+              <item.icon className="h-[18px] w-[18px]" />
               {item.label}
             </Link>
           );
         })}
       </nav>
+    </>
+  );
+}
 
-      <Separator />
+export function AppSidebar({ user }: AppSidebarProps) {
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
-      <div className="p-3">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="text-xs">
-              {user.name?.charAt(0)?.toUpperCase() ?? "?"}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{user.name}</p>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            title="Sair"
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
+  // Close drawer on route change
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  const userSection = (
+    <div className="border-t border-sidebar-border p-3">
+      <div className="flex items-center gap-3 rounded-xl px-3 py-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-primary/20 text-sidebar-primary text-sm font-semibold">
+          {user.name?.charAt(0)?.toUpperCase() ?? "?"}
         </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{user.name}</p>
+        </div>
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="rounded-lg p-1.5 hover:bg-sidebar-accent transition-colors text-sidebar-foreground/50 hover:text-sidebar-foreground min-h-[44px] min-w-[44px] flex items-center justify-center"
+          title="Sair"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
       </div>
+    </div>
+  );
+
+  // Mobile: hamburger + sheet drawer
+  if (isMobile) {
+    return (
+      <>
+        {/* Mobile top bar */}
+        <header className="fixed top-0 inset-x-0 z-40 flex h-14 items-center gap-3 border-b bg-background/95 backdrop-blur-sm px-4 supports-backdrop-filter:bg-background/80">
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger render={<Button variant="ghost" size="icon" className="shrink-0" />}>
+              <Menu className="h-5 w-5" />
+              <span className="sr-only">Menu</span>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground" showCloseButton={false}>
+              <div className="flex h-full flex-col">
+                <SidebarNav onNavigate={() => setOpen(false)} />
+                {userSection}
+              </div>
+            </SheetContent>
+          </Sheet>
+          <MobileMonthNav />
+        </header>
+        {/* Spacer to push content below the fixed header */}
+        <div className="h-14 shrink-0" />
+      </>
+    );
+  }
+
+  // Desktop: fixed sidebar
+  return (
+    <aside className="flex h-screen w-64 flex-col bg-sidebar text-sidebar-foreground sticky top-0 shrink-0">
+      <SidebarNav />
+      {userSection}
     </aside>
+  );
+}
+
+/** Compact month nav for mobile header */
+function MobileMonthNav() {
+  const { month, prevMonth, nextMonth } = useMonth();
+  const monthLabel = format(month, "MMM yyyy", { locale: ptBR });
+
+  return (
+    <div className="flex items-center gap-1 ml-auto">
+      <button onClick={prevMonth} className="rounded-lg p-2 hover:bg-muted transition-colors">
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <span className="text-sm font-medium capitalize min-w-[80px] text-center">{monthLabel}</span>
+      <button onClick={nextMonth} className="rounded-lg p-2 hover:bg-muted transition-colors">
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
