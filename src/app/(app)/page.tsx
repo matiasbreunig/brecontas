@@ -30,8 +30,8 @@ import {
 } from "recharts";
 
 const CHART_COLORS = [
-  "#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6",
-  "#8b5cf6", "#ef4444", "#14b8a6", "#f97316", "#84cc16",
+  "#1b6b5a", "#d97706", "#e05a6b", "#2d8a7a", "#8b6e4e",
+  "#5a7a4e", "#c05050", "#3a9688", "#b07040", "#6b8a5a",
 ];
 
 export default function DashboardPage() {
@@ -71,11 +71,11 @@ export default function DashboardPage() {
       {/* Summary Cards — horizontal scroll on mobile */}
       <div className="flex gap-3 overflow-x-auto pb-2 sm:grid sm:grid-cols-2 sm:overflow-visible lg:grid-cols-5 sm:gap-4 -mx-4 px-4 sm:mx-0 sm:px-0">
         <Card className="relative overflow-hidden min-w-[160px] shrink-0 sm:min-w-0 sm:shrink">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           <CardHeader className="flex flex-row items-center justify-between pb-2 relative">
             <CardTitle className="text-sm font-medium text-muted-foreground">Patrimônio</CardTitle>
-            <div className="rounded-lg bg-indigo-500/10 p-2">
-              <Wallet className="h-4 w-4 text-indigo-600" />
+            <div className="rounded-lg bg-primary/10 p-2">
+              <Wallet className="h-4 w-4 text-primary" />
             </div>
           </CardHeader>
           <CardContent className="relative">
@@ -134,15 +134,15 @@ export default function DashboardPage() {
         </Card>
 
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           <CardHeader className="flex flex-row items-center justify-between pb-2 relative">
             <CardTitle className="text-sm font-medium text-muted-foreground">Inbox</CardTitle>
-            <div className="rounded-lg bg-purple-500/10 p-2">
-              <Inbox className="h-4 w-4 text-purple-600" />
+            <div className="rounded-lg bg-primary/10 p-2">
+              <Inbox className="h-4 w-4 text-primary" />
             </div>
           </CardHeader>
           <CardContent className="relative">
-            <div className="text-2xl font-bold tabular-nums text-purple-600">{inboxCount ?? 0}</div>
+            <div className="text-2xl font-bold tabular-nums text-primary">{inboxCount ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">Itens para processar</p>
           </CardContent>
         </Card>

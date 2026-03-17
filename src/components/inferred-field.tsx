@@ -22,7 +22,7 @@ const SOURCE_LABELS: Record<FieldSource, string> = {
 };
 
 const SOURCE_COLORS: Record<FieldSource, string> = {
-  parsed: "border-l-indigo-400",
+  parsed: "border-l-primary/60",
   history: "border-l-emerald-400",
   ocr: "border-l-amber-400",
   ai: "border-l-purple-400",
@@ -69,7 +69,7 @@ export function InferredField({
     >
       {children}
       <div className="absolute -top-0.5 -right-1 opacity-60 group-hover/inferred:opacity-100 transition-opacity">
-        <Sparkles className="h-3 w-3 text-indigo-400" />
+        <Sparkles className="h-3 w-3 text-primary/70" />
       </div>
     </div>
   );
@@ -80,7 +80,7 @@ export function InferredBadge({ source, confidence }: { source: FieldSource; con
   if (source === "user") return null;
 
   const badgeColors: Record<FieldSource, string> = {
-    parsed: "bg-indigo-50 text-indigo-600",
+    parsed: "bg-primary/5 text-primary",
     history: "bg-emerald-50 text-emerald-600",
     ocr: "bg-amber-50 text-amber-600",
     ai: "bg-purple-50 text-purple-600",

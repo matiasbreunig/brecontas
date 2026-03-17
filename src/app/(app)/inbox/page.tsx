@@ -400,7 +400,7 @@ export default function InboxPage() {
 
       {/* Quick capture with tabs */}
       <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
         <CardContent className="relative pt-5 pb-4">
           {/* Tabs */}
           <div className="flex gap-1 mb-3 bg-muted rounded-lg p-1 w-fit">

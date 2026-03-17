@@ -85,7 +85,7 @@ export default function RelatoriosPage() {
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           <CardContent className="relative pt-6">
             <p className="text-sm text-muted-foreground">Saldo do Mês</p>
             <p className={`text-2xl font-bold tabular-nums ${totalIncome - totalExpense >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -206,7 +206,7 @@ export default function RelatoriosPage() {
                     <div className="flex items-center gap-3">
                       <div className="w-20 bg-muted rounded-full h-1.5">
                         <div
-                          className="bg-indigo-500 h-1.5 rounded-full"
+                          className="bg-primary h-1.5 rounded-full"
                           style={{ width: `${cat.percentage}%` }}
                         />
                       </div>

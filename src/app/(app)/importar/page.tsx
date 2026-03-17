@@ -157,9 +157,9 @@ export default function ImportarPage() {
           const isActive = stepNames.indexOf(step) >= i;
           return (
             <div key={label} className="flex items-center gap-2">
-              {i > 0 && <div className={`h-px w-8 ${isActive ? "bg-indigo-500" : "bg-muted"}`} />}
+              {i > 0 && <div className={`h-px w-8 ${isActive ? "bg-primary" : "bg-muted"}`} />}
               <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                isActive ? "bg-indigo-500/10 text-indigo-700" : "bg-muted text-muted-foreground"
+                isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
               }`}>
                 <span>{i + 1}</span>
                 <span>{label}</span>
@@ -172,7 +172,7 @@ export default function ImportarPage() {
       {/* Step 1: Upload */}
       {step === "upload" && (
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           <CardContent className="relative pt-6 space-y-6">
             <div className="space-y-2">
               <Label>Conta de destino</Label>
@@ -200,7 +200,7 @@ export default function ImportarPage() {
             </div>
 
             <div
-              className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+              className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-primary/60 hover:bg-primary/5 transition-colors"
               onClick={() => document.getElementById("file-input")?.click()}
             >
               <input
@@ -212,7 +212,7 @@ export default function ImportarPage() {
               />
               {file ? (
                 <div className="flex items-center justify-center gap-3">
-                  <FileText className="h-8 w-8 text-indigo-600" />
+                  <FileText className="h-8 w-8 text-primary" />
                   <div className="text-left">
                     <p className="font-medium">{file.name}</p>
                     <p className="text-sm text-muted-foreground">

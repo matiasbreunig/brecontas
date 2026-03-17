@@ -211,7 +211,7 @@ export default function ContasPage() {
               const Icon = accountTypeIcons[acc.type] || Landmark;
               return (
                 <Card key={acc.id} className="relative overflow-hidden">
-                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
                   <CardContent className="relative py-4">
                     <div className="flex items-center gap-3">
                       <div

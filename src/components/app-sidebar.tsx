@@ -56,28 +56,28 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground font-bold text-base">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-base">
           B
         </div>
-        <span className="font-semibold text-lg tracking-tight">Brecontas</span>
+        <span className="font-semibold text-lg tracking-tight text-sidebar-foreground">Brecontas</span>
       </div>
 
       {/* Month Selector */}
-      <div className="mx-3 mb-4 rounded-xl bg-sidebar-accent/50 p-3">
+      <div className="mx-3 mb-4 rounded-lg border border-sidebar-border p-3">
         <div className="flex items-center justify-between mb-1">
           <button
             onClick={prevMonth}
-            className="rounded-lg p-1.5 hover:bg-sidebar-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="rounded-md p-1.5 hover:bg-sidebar-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <div className="text-center">
             <p className="text-sm font-semibold capitalize">{monthLabel}</p>
-            <p className="text-xs text-sidebar-foreground/60">{yearLabel}</p>
+            <p className="text-xs text-sidebar-foreground/50">{yearLabel}</p>
           </div>
           <button
             onClick={nextMonth}
-            className="rounded-lg p-1.5 hover:bg-sidebar-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="rounded-md p-1.5 hover:bg-sidebar-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -85,7 +85,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         {!isCurrentMonth && (
           <button
             onClick={goToToday}
-            className="w-full mt-1 text-[11px] text-sidebar-primary hover:text-sidebar-primary/80 font-medium transition-colors flex items-center justify-center gap-1"
+            className="w-full mt-1 text-[11px] text-primary hover:text-primary/80 font-medium transition-colors flex items-center justify-center gap-1"
           >
             <CalendarDays className="h-3 w-3" />
             Ir para mês atual
@@ -94,7 +94,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="flex-1 space-y-0.5 px-3">
         {navItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"
@@ -106,10 +106,10 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               href={item.href}
               onClick={onNavigate}
               className={cn(
-                "flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm transition-all duration-150 min-h-[44px]",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-150 min-h-[44px]",
                 isActive
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-sm"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               )}
             >
               <item.icon className="h-[18px] w-[18px]" />
@@ -134,16 +134,16 @@ export function AppSidebar({ user }: AppSidebarProps) {
 
   const userSection = (
     <div className="border-t border-sidebar-border p-3">
-      <div className="flex items-center gap-3 rounded-xl px-3 py-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-primary/20 text-sidebar-primary text-sm font-semibold">
+      <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
           {user.name?.charAt(0)?.toUpperCase() ?? "?"}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{user.name}</p>
+          <p className="text-sm font-medium truncate text-sidebar-foreground">{user.name}</p>
         </div>
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="rounded-lg p-1.5 hover:bg-sidebar-accent transition-colors text-sidebar-foreground/50 hover:text-sidebar-foreground min-h-[44px] min-w-[44px] flex items-center justify-center"
+          className="rounded-md p-1.5 hover:bg-sidebar-accent transition-colors text-sidebar-foreground/40 hover:text-sidebar-foreground min-h-[44px] min-w-[44px] flex items-center justify-center"
           title="Sair"
         >
           <LogOut className="h-4 w-4" />
@@ -163,7 +163,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
               <Menu className="h-5 w-5" />
               <span className="sr-only">Menu</span>
             </SheetTrigger>
-            <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground" showCloseButton={false}>
+            <SheetContent side="left" className="w-72 p-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border" showCloseButton={false}>
               <div className="flex h-full flex-col">
                 <SidebarNav onNavigate={() => setOpen(false)} />
                 {userSection}
@@ -180,7 +180,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
 
   // Desktop: fixed sidebar
   return (
-    <aside className="flex h-screen w-64 flex-col bg-sidebar text-sidebar-foreground sticky top-0 shrink-0">
+    <aside className="flex h-screen w-64 flex-col bg-sidebar text-sidebar-foreground sticky top-0 shrink-0 border-r border-sidebar-border">
       <SidebarNav />
       {userSection}
     </aside>

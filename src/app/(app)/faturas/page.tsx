@@ -32,11 +32,11 @@ export default function FaturasPage() {
       <div className="grid gap-4 md:grid-cols-3">
         {cards?.map((card) => (
           <Card key={card.id} className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
             <CardContent className="relative pt-6">
               <div className="flex items-center gap-3 mb-3">
-                <div className="rounded-lg bg-indigo-500/10 p-2">
-                  <CreditCard className="h-5 w-5 text-indigo-600" />
+                <div className="rounded-lg bg-primary/10 p-2">
+                  <CreditCard className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="font-semibold text-sm">{card.name}</p>

@@ -263,10 +263,10 @@ export default function RecorrentesPage() {
           </CardContent>
         </Card>
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           <CardContent className="relative pt-6">
             <div className="flex items-center gap-2 mb-1">
-              <Repeat className="h-4 w-4 text-indigo-600" />
+              <Repeat className="h-4 w-4 text-primary" />
               <p className="text-sm text-muted-foreground">Templates ativos</p>
             </div>
             <p className="text-2xl font-bold tabular-nums">{activeTemplates.length}</p>
