@@ -10,6 +10,7 @@ import {
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
+import type { Database } from "@/server/db";
 
 function matchesRule(
   description: string,
@@ -217,39 +218,48 @@ export const reconciliationRouter = router({
         })
         .where(and(eq(transactions.id, transactionId), eq(transactions.userId, ctx.userId)));
 
-      // Optionally create a rule from this reconciliation
-      if (createRule) {
-        const tx = await ctx.db.query.transactions.findFirst({
-          where: eq(transactions.id, transactionId),
-        });
+      // Fetch the reconciled transaction once for all post-processing
+      const tx = await ctx.db.query.transactions.findFirst({
+        where: and(eq(transactions.id, transactionId), eq(transactions.userId, ctx.userId)),
+      });
 
-        if (tx?.description) {
-          const ruleId = generateId();
-          await ctx.db.insert(reconciliationRules).values({
-            id: ruleId,
-            userId: ctx.userId,
-            pattern: tx.description,
-            matchType: "contains",
-            beneficiaryId: input.beneficiaryId ?? tx.beneficiaryId ?? null,
-            categoryId: input.categoryId ?? tx.categoryId ?? null,
-            paymentMethod: input.paymentMethod ?? tx.paymentMethod ?? null,
-            priority: 0,
-            hitCount: 1,
-            createdByUserId: ctx.userId,
-            createdAt: now,
-          });
-        }
+      // Optionally create a rule from this reconciliation
+      if (createRule && tx?.description) {
+        const ruleId = generateId();
+        await ctx.db.insert(reconciliationRules).values({
+          id: ruleId,
+          userId: ctx.userId,
+          pattern: tx.description,
+          matchType: "contains",
+          beneficiaryId: input.beneficiaryId ?? tx.beneficiaryId ?? null,
+          categoryId: input.categoryId ?? tx.categoryId ?? null,
+          paymentMethod: input.paymentMethod ?? tx.paymentMethod ?? null,
+          priority: 0,
+          hitCount: 1,
+          createdByUserId: ctx.userId,
+          createdAt: now,
+        });
       }
 
       // Update linked statement entry if exists
-      const tx = await ctx.db.query.transactions.findFirst({
-        where: eq(transactions.id, transactionId),
-      });
       if (tx?.statementEntryId) {
         await ctx.db
           .update(statementEntries)
           .set({ status: "matched" })
           .where(eq(statementEntries.id, tx.statementEntryId));
+      }
+
+      // ── Auto-learning: expand beneficiary aliases ──
+      // When a transaction is reconciled with a beneficiary, add the description
+      // as an alias so future imports auto-match this beneficiary
+      const effectiveBeneficiaryId = input.beneficiaryId ?? tx?.beneficiaryId;
+      if (effectiveBeneficiaryId && tx?.description) {
+        await autoExpandBeneficiaryAliases(
+          effectiveBeneficiaryId,
+          tx.description,
+          ctx.userId,
+          ctx.db,
+        );
       }
     }),
 
@@ -271,6 +281,26 @@ export const reconciliationRouter = router({
             eq(transactions.userId, ctx.userId)
           )
         );
+
+      // Auto-learning: expand aliases for all reconciled transactions
+      const reconciledTxs = await ctx.db.query.transactions.findMany({
+        where: and(
+          inArray(transactions.id, input.transactionIds),
+          eq(transactions.userId, ctx.userId),
+        ),
+        columns: { id: true, beneficiaryId: true, description: true },
+      });
+
+      for (const tx of reconciledTxs) {
+        if (tx.beneficiaryId && tx.description) {
+          await autoExpandBeneficiaryAliases(
+            tx.beneficiaryId,
+            tx.description,
+            ctx.userId,
+            ctx.db,
+          );
+        }
+      }
 
       return { count: input.transactionIds.length };
     }),
@@ -404,3 +434,105 @@ export const reconciliationRouter = router({
       return { totalTested: recentTxs.length, matchCount: matches.length, matches: matches.slice(0, 10) };
     }),
 });
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+/**
+ * Extract the most significant part of a transaction description for alias matching.
+ * Removes common prefixes (PIX, TBI, INT, PAG), installment suffixes, and numbers.
+ */
+function extractSignificantPart(description: string): string | null {
+  let clean = description
+    // Remove common bank operation prefixes
+    .replace(/^(PIX\s+(TRANSF|RECEBID[AO]|ENVIADO?|QR\s*CODE)\s*)/i, "")
+    .replace(/^(TBI\s+\d+\.\d+\s*)/i, "")
+    .replace(/^(INT\s+)/i, "")
+    .replace(/^(PAG\s+BOLETO\s*)/i, "")
+    .replace(/^(DEB\s+AUTOR\s*)/i, "")
+    // Remove installment suffixes (e.g., "03/12", "C 17/21")
+    .replace(/\s*[-–]\s*C?\s*\d{1,2}\s*[\/\\]\s*\d{1,2}\s*$/i, "")
+    .replace(/\s+\d{1,2}\s*[\/\\]\s*\d{1,2}\s*$/i, "")
+    // Remove trailing dates (DD/MM, DD/MM/YY)
+    .replace(/\s+\d{2}\/\d{2}(\/\d{2,4})?\s*$/i, "")
+    // Remove trailing asterisks and numbers (e.g., "*MERCADOPAG*1234")
+    .replace(/\*\d+\s*$/, "")
+    .trim();
+
+  // Must be at least 4 chars to be meaningful
+  if (clean.length < 4) return null;
+
+  return clean;
+}
+
+/**
+ * Auto-expand beneficiary aliases when a transaction is reconciled.
+ * Adds the transaction description (or its significant part) as an alias
+ * if it's not already present and is sufficiently specific.
+ */
+async function autoExpandBeneficiaryAliases(
+  beneficiaryId: string,
+  description: string,
+  userId: string,
+  database: Database,
+): Promise<void> {
+  try {
+    const ben = await database.query.beneficiaries.findFirst({
+      where: and(eq(beneficiaries.id, beneficiaryId), eq(beneficiaries.userId, userId)),
+    });
+
+    if (!ben) return;
+
+    const currentAliases: string[] = ben.aliases ? JSON.parse(ben.aliases) : [];
+    const normDesc = normalize(description);
+
+    // Check if description already matches the beneficiary name
+    if (normalize(ben.name) === normDesc) return;
+
+    // Check if description is already an alias (normalized comparison)
+    if (currentAliases.some((a) => normalize(a) === normDesc)) return;
+
+    // Extract significant part of description
+    const significant = extractSignificantPart(description);
+    if (!significant) return;
+
+    const normSignificant = normalize(significant);
+
+    // Check if significant part already matches name or existing alias
+    if (normalize(ben.name) === normSignificant) return;
+    if (currentAliases.some((a) => normalize(a) === normSignificant)) return;
+
+    // Check if an existing alias already contains or is contained by the significant part
+    // (avoid adding "MERCADOPAGO" if "MERCADOPAG" already exists, or vice versa)
+    if (currentAliases.some((a) => {
+      const na = normalize(a);
+      return na.includes(normSignificant) || normSignificant.includes(na);
+    })) return;
+
+    // Also check if the beneficiary name already contains the significant part
+    if (normalize(ben.name).includes(normSignificant) || normSignificant.includes(normalize(ben.name))) return;
+
+    // Add as new alias
+    const newAliases = [...currentAliases, significant];
+    await database
+      .update(beneficiaries)
+      .set({
+        aliases: JSON.stringify(newAliases),
+        updatedByUserId: userId,
+        updatedAt: nowTimestamp(),
+      })
+      .where(eq(beneficiaries.id, beneficiaryId));
+  } catch (err) {
+    // Alias expansion should never block reconciliation
+    console.error("[reconcile] Auto-expand aliases failed:", err);
+  }
+}

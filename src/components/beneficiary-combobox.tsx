@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { ChevronsUpDown, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -25,9 +25,11 @@ interface BeneficiaryComboboxProps {
   value?: string; // beneficiary ID
   freeText?: string; // free text when no existing match
   onSelect: (beneficiaryId: string | undefined, freeText?: string) => void;
+  onCreate?: (name: string) => void; // callback to create + persist new beneficiary
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  size?: "sm" | "default";
 }
 
 export function BeneficiaryCombobox({
@@ -35,9 +37,11 @@ export function BeneficiaryCombobox({
   value,
   freeText,
   onSelect,
-  placeholder = "Selecionar beneficiário...",
+  onCreate,
+  placeholder = "Selecionar favorecido...",
   className,
   disabled,
+  size = "default",
 }: BeneficiaryComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
@@ -51,6 +55,16 @@ export function BeneficiaryCombobox({
     (b) => b.name.toLowerCase() === searchNorm
   );
 
+  function handleCreate(name: string) {
+    if (onCreate) {
+      onCreate(name);
+    } else {
+      onSelect(undefined, name);
+    }
+    setOpen(false);
+    setSearch("");
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -58,7 +72,8 @@ export function BeneficiaryCombobox({
           <Button
             variant="outline"
             className={cn(
-              "w-full justify-between min-h-[44px] sm:min-h-[36px] font-normal",
+              "w-full justify-between font-normal",
+              size === "sm" ? "h-9 text-sm" : "min-h-[44px] sm:min-h-[36px]",
               !displayValue && "text-muted-foreground",
               className
             )}
@@ -84,11 +99,7 @@ export function BeneficiaryCombobox({
                 <button
                   type="button"
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted rounded-md transition-colors"
-                  onClick={() => {
-                    onSelect(undefined, search.trim());
-                    setOpen(false);
-                    setSearch("");
-                  }}
+                  onClick={() => handleCreate(search.trim())}
                 >
                   <Plus className="h-4 w-4 text-emerald-600" />
                   <span>
@@ -96,7 +107,7 @@ export function BeneficiaryCombobox({
                   </span>
                 </button>
               ) : (
-                "Nenhum beneficiário encontrado."
+                "Nenhum favorecido encontrado."
               )}
             </CommandEmpty>
             <CommandGroup>
@@ -121,11 +132,7 @@ export function BeneficiaryCombobox({
                 <CommandGroup>
                   <CommandItem
                     value={`__create__${search.trim()}`}
-                    onSelect={() => {
-                      onSelect(undefined, search.trim());
-                      setOpen(false);
-                      setSearch("");
-                    }}
+                    onSelect={() => handleCreate(search.trim())}
                   >
                     <Plus className="h-4 w-4 text-emerald-600" />
                     Criar &quot;{search.trim()}&quot;

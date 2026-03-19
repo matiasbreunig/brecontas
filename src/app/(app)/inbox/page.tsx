@@ -545,7 +545,11 @@ export default function InboxPage() {
                   )}
                 </Label>
                 <Select value={convertForm.type} onValueChange={(v) => updateField("type", v ?? "expense")}>
-                  <SelectTrigger className="min-h-[44px]"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="min-h-[44px]">
+                    <span className="flex flex-1 text-left truncate">
+                      {TRANSACTION_TYPE_LABELS[convertForm.type as keyof typeof TRANSACTION_TYPE_LABELS] ?? "Selecione"}
+                    </span>
+                  </SelectTrigger>
                   <SelectContent>
                     {Object.entries(TRANSACTION_TYPE_LABELS).map(([k, v]) => (
                       <SelectItem key={k} value={k}>{v}</SelectItem>
@@ -608,7 +612,15 @@ export default function InboxPage() {
                   )}
                 </Label>
                 <Select value={convertForm.accountId} onValueChange={(v) => updateField("accountId", v ?? "")}>
-                  <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectTrigger className="min-h-[44px]">
+                    {convertForm.accountId ? (
+                      <span className="flex flex-1 text-left truncate">
+                        {accounts?.find(a => a.id === convertForm.accountId)?.name ?? "Selecione"}
+                      </span>
+                    ) : (
+                      <SelectValue placeholder="Selecione" />
+                    )}
+                  </SelectTrigger>
                   <SelectContent>
                     {accounts?.map((acc) => (
                       <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
@@ -659,7 +671,15 @@ export default function InboxPage() {
                 )}
               </Label>
               <Select value={convertForm.categoryId} onValueChange={(v) => updateField("categoryId", v ?? "")}>
-                <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger className="min-h-[44px]">
+                  {convertForm.categoryId ? (
+                    <span className="flex flex-1 text-left truncate">
+                      {(() => { const c = allCategories.find(c => c.id === convertForm.categoryId); return c ? `${c.icon} ${c.name}` : "Selecione"; })()}
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="Selecione" />
+                  )}
+                </SelectTrigger>
                 <SelectContent>
                   {allCategories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
@@ -700,7 +720,15 @@ export default function InboxPage() {
                 )}
               </Label>
               <Select value={convertForm.paymentMethod} onValueChange={(v) => updateField("paymentMethod", v ?? "")}>
-                <SelectTrigger className="min-h-[44px]"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectTrigger className="min-h-[44px]">
+                  {convertForm.paymentMethod ? (
+                    <span className="flex flex-1 text-left truncate">
+                      {PAYMENT_METHOD_LABELS[convertForm.paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] ?? "Selecione"}
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="Selecione" />
+                  )}
+                </SelectTrigger>
                 <SelectContent>
                   {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => (
                     <SelectItem key={k} value={k}>{v}</SelectItem>

@@ -7,7 +7,7 @@ export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 export const PAYMENT_METHODS = ["pix", "debit", "credit", "transfer", "boleto", "cash", "other"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-export const ACCOUNT_TYPES = ["checking", "savings", "investment", "wallet"] as const;
+export const ACCOUNT_TYPES = ["checking", "savings", "investment", "wallet", "virtual"] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 export const CARD_BRANDS = ["visa", "mastercard", "elo", "amex", "other"] as const;
@@ -49,6 +49,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   savings: "Poupança",
   investment: "Investimento",
   wallet: "Carteira",
+  virtual: "Virtual",
 };
 
 export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {

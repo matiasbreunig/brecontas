@@ -8,6 +8,7 @@ import superjson from "superjson";
 import { SessionProvider } from "next-auth/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MonthProvider } from "@/hooks/use-month";
+import { UndoRedoProvider } from "@/hooks/use-undo-redo";
 
 function getBaseUrl() {
   if (typeof window !== "undefined") return "";
@@ -39,7 +40,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <MonthProvider>
-              {children}
+              <UndoRedoProvider>
+                {children}
+              </UndoRedoProvider>
             </MonthProvider>
           </TooltipProvider>
         </QueryClientProvider>

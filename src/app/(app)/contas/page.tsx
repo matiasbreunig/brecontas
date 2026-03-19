@@ -17,6 +17,7 @@ import {
   PiggyBank,
   TrendingUp,
   Wallet,
+  Link2,
 } from "lucide-react";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/constants";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ const accountTypeIcons: Record<string, typeof Landmark> = {
   savings: PiggyBank,
   investment: TrendingUp,
   wallet: Wallet,
+  virtual: Link2,
 };
 
 export default function ContasPage() {
@@ -80,7 +82,7 @@ export default function ContasPage() {
                   const fd = new FormData(e.currentTarget);
                   createAccount.mutate({
                     name: fd.get("name") as string,
-                    type: fd.get("type") as "checking" | "savings" | "investment" | "wallet",
+                    type: fd.get("type") as "checking" | "savings" | "investment" | "wallet" | "virtual",
                     institution: (fd.get("institution") as string) || undefined,
                     initialBalance: Math.round(parseFloat(fd.get("initialBalance") as string || "0") * 100),
                   });

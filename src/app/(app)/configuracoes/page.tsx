@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAutoSave } from "@/hooks/use-auto-save";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Pencil, Trash2, ChevronRight, Zap, TestTube } from "lucide-react";
+import { CategoryCombobox } from "@/components/category-combobox";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 import { toast } from "sonner";
 
@@ -50,34 +52,18 @@ export default function ConfiguracoesPage() {
 
 /* ──────────────────────────── Categories ──────────────────────────── */
 
-interface CategoryFormData {
-  name: string;
-  icon: string;
-  type: "income" | "expense" | "both";
-  parentId: string | null;
-}
-
 function CategoriesTab() {
   const { data: categories } = trpc.categories.listTree.useQuery();
   const { data: allCategories } = trpc.categories.list.useQuery();
   const utils = trpc.useUtils();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<CategoryFormData>({ name: "", icon: "", type: "expense", parentId: null });
 
   const createCategory = trpc.categories.create.useMutation({
     onSuccess: () => {
       utils.categories.invalidate();
       toast.success("Categoria criada");
       setCreateOpen(false);
-    },
-  });
-
-  const updateCategory = trpc.categories.update.useMutation({
-    onSuccess: () => {
-      utils.categories.invalidate();
-      toast.success("Categoria atualizada");
-      setEditingId(null);
     },
   });
 
@@ -90,13 +76,7 @@ function CategoriesTab() {
 
   const parentOptions = allCategories?.filter(c => !c.parentId && c.isActive) ?? [];
 
-  function startEdit(cat: { id: string; name: string; icon: string | null; type: string; parentId: string | null }) {
-    setEditForm({
-      name: cat.name,
-      icon: cat.icon || "",
-      type: cat.type as "income" | "expense" | "both",
-      parentId: cat.parentId,
-    });
+  function startEdit(cat: { id: string }) {
     setEditingId(cat.id);
   }
 
@@ -173,89 +153,20 @@ function CategoriesTab() {
         </Dialog>
       </div>
 
-      {/* Edit Dialog */}
+      {/* Edit Dialog — auto-save per field */}
       <Dialog open={!!editingId} onOpenChange={(open) => { if (!open) setEditingId(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Categoria</DialogTitle>
           </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!editingId) return;
-              updateCategory.mutate({
-                id: editingId,
-                name: editForm.name,
-                icon: editForm.icon || undefined,
-                type: editForm.type,
-                parentId: editForm.parentId === "__none__" ? null : editForm.parentId,
-              });
-            }}
-            className="space-y-4"
-          >
-            <div className="grid grid-cols-[1fr_80px] gap-3">
-              <div className="space-y-2">
-                <Label>Nome</Label>
-                <Input
-                  value={editForm.name}
-                  onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Ícone</Label>
-                <Input
-                  value={editForm.icon}
-                  onChange={(e) => setEditForm(f => ({ ...f, icon: e.target.value }))}
-                  className="text-center"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Tipo</Label>
-                <Select value={editForm.type} onValueChange={(v) => setEditForm(f => ({ ...f, type: (v ?? "expense") as "income" | "expense" | "both" }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="expense">Despesa</SelectItem>
-                    <SelectItem value="income">Receita</SelectItem>
-                    <SelectItem value="both">Ambos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Grupo pai</Label>
-                <Select
-                  value={editForm.parentId ?? "__none__"}
-                  onValueChange={(v) => setEditForm(f => ({ ...f, parentId: v === "__none__" ? null : (v ?? null) }))}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Nenhum (raiz)</SelectItem>
-                    {parentOptions
-                      .filter(p => p.id !== editingId)
-                      .map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.icon} {p.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button type="submit" className="flex-1" disabled={updateCategory.isPending}>
-                Salvar
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditingId(null)}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </form>
+          {editingId && (
+            <CategoryEditFields
+              categoryId={editingId}
+              category={allCategories?.find((c) => c.id === editingId) ?? null}
+              parentOptions={parentOptions.filter((p) => p.id !== editingId)}
+              onClose={() => setEditingId(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 
@@ -326,6 +237,131 @@ function CategoriesTab() {
         {categories?.length === 0 && (
           <p className="text-sm text-muted-foreground py-4">Nenhuma categoria cadastrada.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────── Category Edit Fields ──────────────────────────── */
+
+interface CategoryEditFieldsProps {
+  categoryId: string;
+  category: { id: string; name: string; icon: string | null; type: string; parentId: string | null } | null;
+  parentOptions: { id: string; name: string; icon: string | null }[];
+  onClose: () => void;
+}
+
+function CategoryEditFields({ categoryId, category, parentOptions, onClose }: CategoryEditFieldsProps) {
+  const utils = trpc.useUtils();
+  const updateCategory = trpc.categories.update.useMutation({
+    onSuccess: () => utils.categories.invalidate(),
+  });
+
+  const saveCatField = useCallback(
+    (field: string) => async (value: unknown) => {
+      await updateCategory.mutateAsync({
+        id: categoryId,
+        [field]: field === "parentId" ? (value === "__none__" ? null : value) : (value || undefined),
+      } as Parameters<typeof updateCategory.mutateAsync>[0]);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [categoryId],
+  );
+
+  const name = useAutoSave({
+    entityType: "categories",
+    entityId: categoryId,
+    field: "name",
+    serverValue: category?.name ?? "",
+    save: saveCatField("name"),
+    debounceMs: 400,
+    description: "Nome da categoria alterado",
+  });
+
+  const icon = useAutoSave({
+    entityType: "categories",
+    entityId: categoryId,
+    field: "icon",
+    serverValue: category?.icon ?? "",
+    save: saveCatField("icon"),
+    debounceMs: 400,
+    description: "Ícone da categoria alterado",
+  });
+
+  const type = useAutoSave({
+    entityType: "categories",
+    entityId: categoryId,
+    field: "type",
+    serverValue: category?.type ?? "expense",
+    save: saveCatField("type"),
+    debounceMs: 0,
+    description: "Tipo da categoria alterado",
+  });
+
+  const parentId = useAutoSave({
+    entityType: "categories",
+    entityId: categoryId,
+    field: "parentId",
+    serverValue: category?.parentId ?? "__none__",
+    save: saveCatField("parentId"),
+    debounceMs: 0,
+    description: "Grupo pai alterado",
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-[1fr_80px] gap-3">
+        <div className="space-y-2">
+          <Label>Nome</Label>
+          <Input
+            value={name.value}
+            onChange={(e) => name.setValue(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Ícone</Label>
+          <Input
+            value={icon.value}
+            onChange={(e) => icon.setValue(e.target.value)}
+            className="text-center"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Tipo</Label>
+          <Select value={type.value} onValueChange={(v) => type.setValue(v ?? "expense")}>
+            <SelectTrigger>
+              {type.value ? (
+                <span className="flex flex-1 text-left truncate">
+                  {{ expense: "Despesa", income: "Receita", both: "Ambos" }[type.value] ?? type.value}
+                </span>
+              ) : (
+                <SelectValue />
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="expense">Despesa</SelectItem>
+              <SelectItem value="income">Receita</SelectItem>
+              <SelectItem value="both">Ambos</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Grupo pai</Label>
+          <CategoryCombobox
+            categories={parentOptions}
+            value={parentId.value !== "__none__" ? parentId.value : undefined}
+            onSelect={(id) => parentId.setValue(id ?? "__none__")}
+            placeholder="Nenhum (raiz)"
+            emptyLabel="Nenhum (raiz)"
+          />
+        </div>
+      </div>
+      <div className="flex justify-end">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Fechar
+        </Button>
       </div>
     </div>
   );
@@ -427,24 +463,12 @@ function BeneficiariesTab() {
   const utils = trpc.useUtils();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editAliases, setEditAliases] = useState("");
-  const [editNotes, setEditNotes] = useState("");
-  const [editCategoryId, setEditCategoryId] = useState<string | null>(null);
 
   const createBeneficiary = trpc.beneficiaries.create.useMutation({
     onSuccess: () => {
       utils.beneficiaries.invalidate();
       toast.success("Favorecido criado");
       setCreateOpen(false);
-    },
-  });
-
-  const updateBeneficiary = trpc.beneficiaries.update.useMutation({
-    onSuccess: () => {
-      utils.beneficiaries.invalidate();
-      toast.success("Favorecido atualizado");
-      setEditingId(null);
     },
   });
 
@@ -455,13 +479,8 @@ function BeneficiariesTab() {
     },
   });
 
-  function startEdit(b: { id: string; name: string; aliases: string | null; notes: string | null; defaultCategoryId: string | null }) {
+  function startEdit(b: { id: string }) {
     setEditingId(b.id);
-    setEditName(b.name);
-    const parsed: string[] = b.aliases ? JSON.parse(b.aliases) : [];
-    setEditAliases(parsed.join(", "));
-    setEditNotes(b.notes || "");
-    setEditCategoryId(b.defaultCategoryId);
   }
 
   return (
@@ -532,66 +551,20 @@ function BeneficiariesTab() {
         </Dialog>
       </div>
 
-      {/* Edit Dialog */}
+      {/* Edit Dialog — auto-save per field */}
       <Dialog open={!!editingId} onOpenChange={(open) => { if (!open) setEditingId(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Favorecido</DialogTitle>
           </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!editingId) return;
-              updateBeneficiary.mutate({
-                id: editingId,
-                name: editName,
-                aliases: editAliases
-                  ? editAliases.split(",").map(a => a.trim()).filter(Boolean)
-                  : [],
-                defaultCategoryId: editCategoryId === "__none__" ? null : editCategoryId,
-                notes: editNotes || undefined,
-              });
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label>Nome</Label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label>Aliases (separados por vírgula)</Label>
-              <Input value={editAliases} onChange={(e) => setEditAliases(e.target.value)} />
-              <p className="text-[11px] text-muted-foreground">
-                Prefixe com <code className="bg-muted px-1 rounded">regex:</code> para padrões.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>Categoria padrão</Label>
-              <Select value={editCategoryId ?? "__none__"} onValueChange={(v) => setEditCategoryId(v === "__none__" ? null : (v ?? null))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Nenhuma</SelectItem>
-                  {categories?.filter(c => c.isActive).map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.icon} {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Notas</Label>
-              <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} />
-            </div>
-            <div className="flex gap-2">
-              <Button type="submit" className="flex-1" disabled={updateBeneficiary.isPending}>
-                Salvar
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setEditingId(null)}>
-                Cancelar
-              </Button>
-            </div>
-          </form>
+          {editingId && (
+            <BeneficiaryEditFields
+              beneficiaryId={editingId}
+              beneficiary={beneficiaries?.find((b) => b.id === editingId) ?? null}
+              categories={categories?.filter((c) => c.isActive) ?? []}
+              onClose={() => setEditingId(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 
@@ -645,6 +618,137 @@ function BeneficiariesTab() {
         {beneficiaries?.length === 0 && (
           <p className="text-sm text-muted-foreground py-4">Nenhum favorecido cadastrado.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────── Beneficiary Edit Fields ──────────────────────────── */
+
+interface BeneficiaryEditFieldsProps {
+  beneficiaryId: string;
+  beneficiary: { id: string; name: string; aliases: string | null; notes: string | null; defaultCategoryId: string | null } | null;
+  categories: { id: string; name: string; icon: string | null }[];
+  onClose: () => void;
+}
+
+function BeneficiaryEditFields({ beneficiaryId, beneficiary, categories, onClose }: BeneficiaryEditFieldsProps) {
+  const utils = trpc.useUtils();
+  const updateBeneficiary = trpc.beneficiaries.update.useMutation({
+    onSuccess: () => utils.beneficiaries.invalidate(),
+  });
+
+  const saveBenField = useCallback(
+    (field: string) => async (value: unknown) => {
+      const data: Record<string, unknown> = { id: beneficiaryId };
+      if (field === "defaultCategoryId") {
+        data.defaultCategoryId = value === "__none__" ? null : value;
+      } else {
+        data[field] = value || undefined;
+      }
+      await updateBeneficiary.mutateAsync(
+        data as Parameters<typeof updateBeneficiary.mutateAsync>[0],
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [beneficiaryId],
+  );
+
+  const serverAliases = useMemo<string[]>(() => {
+    if (!beneficiary?.aliases) return [];
+    return JSON.parse(beneficiary.aliases) as string[];
+  }, [beneficiary?.aliases]);
+
+  const name = useAutoSave({
+    entityType: "beneficiaries",
+    entityId: beneficiaryId,
+    field: "name",
+    serverValue: beneficiary?.name ?? "",
+    save: saveBenField("name"),
+    debounceMs: 400,
+    description: "Nome do favorecido alterado",
+  });
+
+  const aliases = useAutoSave<string[]>({
+    entityType: "beneficiaries",
+    entityId: beneficiaryId,
+    field: "aliases",
+    serverValue: serverAliases,
+    save: async (value: string[]) => {
+      await updateBeneficiary.mutateAsync({
+        id: beneficiaryId,
+        aliases: value,
+      } as Parameters<typeof updateBeneficiary.mutateAsync>[0]);
+    },
+    debounceMs: 600,
+    description: "Aliases alterados",
+  });
+
+  // Local display string for the aliases input
+  const [aliasesDisplay, setAliasesDisplay] = useState(() => serverAliases.join(", "));
+  // Sync display from auto-save value (e.g. after undo)
+  useEffect(() => {
+    setAliasesDisplay(aliases.value.join(", "));
+  }, [aliases.value]);
+
+  const defaultCategoryId = useAutoSave({
+    entityType: "beneficiaries",
+    entityId: beneficiaryId,
+    field: "defaultCategoryId",
+    serverValue: beneficiary?.defaultCategoryId ?? "__none__",
+    save: saveBenField("defaultCategoryId"),
+    debounceMs: 0,
+    description: "Categoria padrão alterada",
+  });
+
+  const notes = useAutoSave({
+    entityType: "beneficiaries",
+    entityId: beneficiaryId,
+    field: "notes",
+    serverValue: beneficiary?.notes ?? "",
+    save: saveBenField("notes"),
+    debounceMs: 400,
+    description: "Notas do favorecido alteradas",
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Nome</Label>
+        <Input value={name.value} onChange={(e) => name.setValue(e.target.value)} />
+      </div>
+      <div className="space-y-2">
+        <Label>Aliases (separados por vírgula)</Label>
+        <Input
+          value={aliasesDisplay}
+          onChange={(e) => {
+            setAliasesDisplay(e.target.value);
+            const arr = e.target.value.split(",").map((a) => a.trim()).filter(Boolean);
+            aliases.setValue(arr);
+          }}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Prefixe com <code className="bg-muted px-1 rounded">regex:</code> para padrões.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>Categoria padrão</Label>
+        <CategoryCombobox
+          categories={categories}
+          value={defaultCategoryId.value !== "__none__" ? defaultCategoryId.value : undefined}
+          onSelect={(id) => defaultCategoryId.setValue(id ?? "__none__")}
+          placeholder="Nenhuma"
+          emptyLabel="Nenhuma"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Notas</Label>
+        <Textarea value={notes.value} onChange={(e) => notes.setValue(e.target.value)} rows={2} />
+      </div>
+      <div className="flex justify-end">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Fechar
+        </Button>
       </div>
     </div>
   );

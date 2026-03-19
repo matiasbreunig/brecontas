@@ -5,6 +5,8 @@ import { eq, and, sql } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
 
+const accountTypeEnum = z.enum(["checking", "savings", "investment", "wallet", "virtual"]);
+
 export const accountsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     const result = await ctx.db.query.accounts.findMany({
@@ -22,11 +24,19 @@ export const accountsRouter = router({
 
     const balances = await Promise.all(
       accs.map(async (acc) => {
-        const result = ctx.db
+        // Canonical balance formula:
+        // saldo = initialBalance
+        //   + income where accountId = this
+        //   - expense where accountId = this
+        //   + refund where accountId = this
+        //   - transfer OUT where accountId = this (money leaves)
+        //   + transfer IN where transfer_account_id = this (money arrives)
+        const outgoing = ctx.db
           .select({
-            totalIncome: sql<number>`COALESCE(SUM(CASE WHEN type = 'income' OR type = 'refund' THEN amount ELSE 0 END), 0)`,
+            totalIncome: sql<number>`COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)`,
             totalExpense: sql<number>`COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)`,
-            totalTransferIn: sql<number>`COALESCE(SUM(CASE WHEN type = 'transfer' AND transfer_pair_id IS NOT NULL THEN amount ELSE 0 END), 0)`,
+            totalRefund: sql<number>`COALESCE(SUM(CASE WHEN type = 'refund' THEN amount ELSE 0 END), 0)`,
+            totalTransferOut: sql<number>`COALESCE(SUM(CASE WHEN type = 'transfer' THEN amount ELSE 0 END), 0)`,
           })
           .from(transactions)
           .where(
@@ -38,10 +48,28 @@ export const accountsRouter = router({
           )
           .get();
 
+        const incoming = ctx.db
+          .select({
+            totalTransferIn: sql<number>`COALESCE(SUM(amount), 0)`,
+          })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.transferAccountId, acc.id),
+              eq(transactions.type, "transfer"),
+              eq(transactions.isProjected, false),
+              sql`status != 'discarded'`
+            )
+          )
+          .get();
+
         const balance =
           acc.initialBalance +
-          (result?.totalIncome ?? 0) -
-          (result?.totalExpense ?? 0);
+          (outgoing?.totalIncome ?? 0) -
+          (outgoing?.totalExpense ?? 0) +
+          (outgoing?.totalRefund ?? 0) -
+          (outgoing?.totalTransferOut ?? 0) +
+          (incoming?.totalTransferIn ?? 0);
 
         return { ...acc, balance };
       })
@@ -54,7 +82,7 @@ export const accountsRouter = router({
     .input(
       z.object({
         name: z.string().min(1),
-        type: z.enum(["checking", "savings", "investment", "wallet"]),
+        type: accountTypeEnum,
         institution: z.string().optional(),
         initialBalance: z.number().int().default(0),
         color: z.string().optional(),
@@ -83,7 +111,7 @@ export const accountsRouter = router({
       z.object({
         id: z.string(),
         name: z.string().min(1).optional(),
-        type: z.enum(["checking", "savings", "investment", "wallet"]).optional(),
+        type: accountTypeEnum.optional(),
         institution: z.string().optional(),
         initialBalance: z.number().int().optional(),
         color: z.string().optional(),

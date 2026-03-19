@@ -21,7 +21,7 @@ export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
   name: text("name").notNull(),
-  type: text("type", { enum: ["checking", "savings", "investment", "wallet"] }).notNull(),
+  type: text("type", { enum: ["checking", "savings", "investment", "wallet", "virtual"] }).notNull(),
   institution: text("institution"),
   initialBalance: integer("initial_balance").notNull().default(0), // centavos
   currency: text("currency").notNull().default("BRL"),
@@ -192,7 +192,10 @@ export const transactions = sqliteTable("transactions", {
   projectedSourceId: text("projected_source_id"),
   installmentCurrent: integer("installment_current"),
   installmentTotal: integer("installment_total"),
-  transferPairId: text("transfer_pair_id"),
+  transferAccountId: text("transfer_account_id").references(() => accounts.id),
+  transferPairId: text("transfer_pair_id"), // deprecated — kept for compat
+  discardedAt: integer("discarded_at", { mode: "timestamp" }),
+  discardReason: text("discard_reason"), // duplicate | error | irrelevant | merged
   createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedByUserId: text("updated_by_user_id").references(() => users.id),
@@ -241,7 +244,7 @@ export const imports = sqliteTable("imports", {
   cardInvoiceId: text("card_invoice_id").references(() => cardInvoices.id),
   importTemplateId: text("import_template_id"),
   filename: text("filename").notNull(),
-  format: text("format", { enum: ["csv", "ofx", "pdf"] }).notNull(),
+  format: text("format", { enum: ["csv", "ofx", "pdf", "xls"] }).notNull(),
   status: text("status", { enum: ["pending", "processing", "completed", "failed"] }).notNull().default("pending"),
   totalRows: integer("total_rows"),
   processedRows: integer("processed_rows"),
@@ -307,7 +310,7 @@ export const importTemplates = sqliteTable("import_templates", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
   name: text("name").notNull(),
-  format: text("format", { enum: ["csv", "ofx", "pdf"] }).notNull(),
+  format: text("format", { enum: ["csv", "ofx", "pdf", "xls"] }).notNull(),
   institution: text("institution"),
   config: text("config").notNull(), // JSON
   isAiGenerated: integer("is_ai_generated", { mode: "boolean" }).notNull().default(false),
@@ -388,6 +391,7 @@ export const accountsRelations = relations(accounts, ({ one, many }) => ({
   user: one(users, { fields: [accounts.userId], references: [users.id] }),
   cards: many(cards),
   transactions: many(transactions),
+  transferTransactions: many(transactions, { relationName: "transferTransactions" }),
 }));
 
 export const cardsRelations = relations(cards, ({ one, many }) => ({
@@ -424,6 +428,7 @@ export const beneficiariesRelations = relations(beneficiaries, ({ one, many }) =
 export const transactionsRelations = relations(transactions, ({ one, many }) => ({
   user: one(users, { fields: [transactions.userId], references: [users.id] }),
   account: one(accounts, { fields: [transactions.accountId], references: [accounts.id] }),
+  transferAccount: one(accounts, { fields: [transactions.transferAccountId], references: [accounts.id], relationName: "transferTransactions" }),
   card: one(cards, { fields: [transactions.cardId], references: [cards.id] }),
   cardInvoice: one(cardInvoices, { fields: [transactions.cardInvoiceId], references: [cardInvoices.id] }),
   beneficiary: one(beneficiaries, { fields: [transactions.beneficiaryId], references: [beneficiaries.id] }),

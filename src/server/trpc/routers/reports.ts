@@ -3,6 +3,14 @@ import { router, protectedProcedure } from "../init";
 import { transactions, categories, cardInvoices } from "@/server/db/schema";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
 
+const dateFieldSchema = z.enum(["date", "competenceDate"]).default("date");
+
+function getDateCol(dateField: "date" | "competenceDate") {
+  return dateField === "competenceDate"
+    ? sql`COALESCE(${transactions.competenceDate}, ${transactions.date})`
+    : sql`${transactions.date}`;
+}
+
 export const reportsRouter = router({
   // Expenses by category for a month
   byCategory: protectedProcedure
@@ -11,9 +19,12 @@ export const reportsRouter = router({
         dateFrom: z.string(),
         dateTo: z.string(),
         type: z.enum(["expense", "income"]).default("expense"),
+        dateField: dateFieldSchema,
       })
     )
     .query(async ({ ctx, input }) => {
+      const dateCol = getDateCol(input.dateField);
+
       const results = await ctx.db
         .select({
           categoryId: transactions.categoryId,
@@ -29,8 +40,8 @@ export const reportsRouter = router({
           and(
             eq(transactions.userId, ctx.userId),
             eq(transactions.type, input.type),
-            gte(transactions.date, input.dateFrom),
-            lte(transactions.date, input.dateTo),
+            sql`${dateCol} >= ${input.dateFrom}`,
+            sql`${dateCol} <= ${input.dateTo}`,
             sql`${transactions.status} != 'discarded'`,
             eq(transactions.isProjected, false)
           )
@@ -52,12 +63,15 @@ export const reportsRouter = router({
       z.object({
         dateFrom: z.string(),
         dateTo: z.string(),
+        dateField: dateFieldSchema,
       })
     )
     .query(async ({ ctx, input }) => {
+      const dateCol = getDateCol(input.dateField);
+
       return ctx.db
         .select({
-          date: transactions.date,
+          date: sql<string>`${dateCol}`.as("date_val"),
           income: sql<number>`COALESCE(SUM(CASE WHEN type = 'income' OR type = 'refund' THEN amount ELSE 0 END), 0)`,
           expense: sql<number>`COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)`,
         })
@@ -65,14 +79,14 @@ export const reportsRouter = router({
         .where(
           and(
             eq(transactions.userId, ctx.userId),
-            gte(transactions.date, input.dateFrom),
-            lte(transactions.date, input.dateTo),
+            sql`${dateCol} >= ${input.dateFrom}`,
+            sql`${dateCol} <= ${input.dateTo}`,
             sql`${transactions.status} != 'discarded'`,
             eq(transactions.isProjected, false)
           )
         )
-        .groupBy(transactions.date)
-        .orderBy(transactions.date);
+        .groupBy(sql`date_val`)
+        .orderBy(sql`date_val`);
     }),
 
   // Month-over-month comparison
@@ -80,9 +94,11 @@ export const reportsRouter = router({
     .input(
       z.object({
         months: z.number().int().min(2).max(12).default(6),
+        dateField: dateFieldSchema,
       })
     )
     .query(async ({ ctx, input }) => {
+      const dateCol = getDateCol(input.dateField);
       const now = new Date();
       const results = [];
 
@@ -102,8 +118,8 @@ export const reportsRouter = router({
           .where(
             and(
               eq(transactions.userId, ctx.userId),
-              gte(transactions.date, dateFrom),
-              lte(transactions.date, dateTo),
+              sql`${dateCol} >= ${dateFrom}`,
+              sql`${dateCol} <= ${dateTo}`,
               sql`${transactions.status} != 'discarded'`,
               eq(transactions.isProjected, false)
             )

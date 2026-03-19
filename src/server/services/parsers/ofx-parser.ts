@@ -10,8 +10,31 @@ interface OfxTransaction {
   CHECKNUM?: string;
 }
 
+export interface OfxMetadata {
+  bankId: string | null;      // "0341" → Itaú
+  accountId: string | null;   // "4092047531"
+  accountType: string | null; // "CHECKING" | "CREDITCARD" | etc
+  currency: string | null;    // "BRL"
+}
+
+// Map BANKID to institution name
+const BANK_ID_MAP: Record<string, string> = {
+  "0001": "bb",
+  "0033": "santander",
+  "0041": "banrisul",
+  "0070": "brb",
+  "0077": "inter",
+  "0104": "caixa",
+  "0237": "bradesco",
+  "0260": "nubank",
+  "0341": "itau",
+  "0422": "safra",
+  "0745": "citibank",
+  "0756": "sicoob",
+};
+
 function parseOfxDate(dateStr: string): string {
-  // OFX dates: YYYYMMDDHHMMSS or YYYYMMDD
+  // OFX dates: YYYYMMDDHHMMSS or YYYYMMDD with optional timezone
   const year = dateStr.slice(0, 4);
   const month = dateStr.slice(4, 6);
   const day = dateStr.slice(6, 8);
@@ -21,6 +44,12 @@ function parseOfxDate(dateStr: string): string {
 function parseOfxAmount(amountStr: string): number {
   const value = parseFloat(amountStr.trim());
   return Math.round(value * 100);
+}
+
+function extractTag(content: string, tag: string): string | null {
+  const regex = new RegExp(`<${tag}>([^<\\r\\n]+)`, "i");
+  const match = regex.exec(content);
+  return match ? match[1].trim() : null;
 }
 
 // Simple OFX parser — OFX is SGML-like, not XML
@@ -71,13 +100,32 @@ function extractBalanceInfo(content: string): { balance?: number; date?: string 
   };
 }
 
+export function extractOfxMetadata(content: string): OfxMetadata {
+  // Try BANKACCTFROM first (bank accounts), then CCACCTFROM (credit cards)
+  const bankId = extractTag(content, "BANKID");
+  const accountId = extractTag(content, "ACCTID");
+  const accountType = extractTag(content, "ACCTTYPE");
+  const currency = extractTag(content, "CURDEF");
+
+  return { bankId, accountId, accountType, currency };
+}
+
+export function resolveInstitutionFromBankId(bankId: string | null): string | undefined {
+  if (!bankId) return undefined;
+  // Normalize: remove leading zeros except last 4 chars
+  const normalized = bankId.replace(/^0+/, "0");
+  return BANK_ID_MAP[bankId] || BANK_ID_MAP[normalized] || undefined;
+}
+
 export function parseOfx(content: string): {
   entries: ParsedEntry[];
   balance?: number;
   balanceDate?: string;
+  metadata: OfxMetadata;
 } {
   const ofxTransactions = extractOfxTransactions(content);
   const balanceInfo = extractBalanceInfo(content);
+  const metadata = extractOfxMetadata(content);
 
   const entries: ParsedEntry[] = ofxTransactions.map((trn, index) => {
     const description = [trn.NAME, trn.MEMO].filter(Boolean).join(" - ") || trn.TRNTYPE;
@@ -97,5 +145,6 @@ export function parseOfx(content: string): {
     entries,
     balance: balanceInfo.balance,
     balanceDate: balanceInfo.date,
+    metadata,
   };
 }
