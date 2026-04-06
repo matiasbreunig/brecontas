@@ -3,6 +3,8 @@ import { auth } from "@/server/auth";
 import fs from "fs";
 import path from "path";
 
+export const dynamic = "force-dynamic";
+
 const MIME_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",

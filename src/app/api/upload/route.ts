@@ -8,6 +8,8 @@ import { extractFromImage, formatOcrSummary } from "@/server/services/ocr/extrac
 import fs from "fs";
 import path from "path";
 
+export const dynamic = "force-dynamic";
+
 const ALLOWED_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
