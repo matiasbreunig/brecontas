@@ -16,14 +16,19 @@ sqlite3 "$DB" "
   SELECT '  imports: ' || COUNT(*) FROM imports;
   SELECT '  card_invoices: ' || COUNT(*) FROM card_invoices;
   SELECT '  transaction_tags: ' || COUNT(*) FROM transaction_tags;
+  SELECT '  ai_classifications: ' || COUNT(*) FROM ai_classifications;
 "
 
+# Order matters: respect FK constraints
 sqlite3 "$DB" "
+  PRAGMA foreign_keys = OFF;
+  DELETE FROM ai_classifications;
   DELETE FROM transaction_tags;
   DELETE FROM transactions;
   DELETE FROM statement_entries;
   DELETE FROM imports;
   DELETE FROM card_invoices;
+  PRAGMA foreign_keys = ON;
 "
 
 echo ""

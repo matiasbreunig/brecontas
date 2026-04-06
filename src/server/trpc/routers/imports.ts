@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../init";
-import { imports, statementEntries, importTemplates, transactions, transactionTags, accounts, cards, cardInvoices } from "@/server/db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { imports, statementEntries, importTemplates, transactions, transactionTags, aiClassifications, accounts, cards, cardInvoices } from "@/server/db/schema";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
 import { handleImportJob } from "@/server/services/jobs/handlers/import-handler";
@@ -413,54 +413,67 @@ export const importsRouter = router({
       const imp = await ctx.db.query.imports.findFirst({
         where: and(eq(imports.id, input.id), eq(imports.userId, ctx.userId)),
       });
-      if (!imp) return;
+      if (!imp) return { deleted: 0 };
 
-      // 1. Get transaction IDs for this import
+      // Get transaction IDs for this import
       const txList = await ctx.db.query.transactions.findMany({
         where: eq(transactions.importId, input.id),
         columns: { id: true },
       });
+      const txIds = txList.map((tx) => tx.id);
 
-      // 2. Delete transaction_tags for those transactions
-      for (const tx of txList) {
+      // Delete in FK-safe order (children before parents):
+      // ai_classifications → transaction_tags → transactions → statement_entries → import → card_invoice
+
+      if (txIds.length > 0) {
+        // 1. Delete ai_classifications (FK → transactions)
+        ctx.db.delete(aiClassifications)
+          .where(inArray(aiClassifications.transactionId, txIds))
+          .run();
+
+        // 2. Delete transaction_tags (FK → transactions)
         ctx.db.delete(transactionTags)
-          .where(eq(transactionTags.transactionId, tx.id))
+          .where(inArray(transactionTags.transactionId, txIds))
+          .run();
+
+        // 3. Delete transactions (FK → card_invoices, statement_entries)
+        ctx.db.delete(transactions)
+          .where(inArray(transactions.id, txIds))
           .run();
       }
 
-      // 3. Delete transactions
-      ctx.db.delete(transactions)
-        .where(eq(transactions.importId, input.id))
-        .run();
-
-      // 4. Delete statement entries
+      // 4. Delete statement entries (FK → card_invoices)
       ctx.db.delete(statementEntries)
         .where(eq(statementEntries.importId, input.id))
         .run();
 
-      // 5. Clean up orphaned card invoice
+      // 5. Delete the import record (before card invoice, no FK to it)
+      ctx.db.delete(imports)
+        .where(eq(imports.id, input.id))
+        .run();
+
+      // 6. Clean up orphaned card invoice (now safe — no more refs)
       if (imp.cardInvoiceId) {
-        const remainingEntries = await ctx.db.query.statementEntries.findFirst({
+        const remainingEntries = ctx.db.query.statementEntries.findFirst({
           where: eq(statementEntries.cardInvoiceId, imp.cardInvoiceId),
         });
-        const otherImport = await ctx.db.query.imports.findFirst({
+        const otherImport = ctx.db.query.imports.findFirst({
           where: and(
             eq(imports.cardInvoiceId, imp.cardInvoiceId),
             sql`${imports.id} != ${input.id}`,
           ),
         });
-        if (!remainingEntries && !otherImport) {
+        // Also check if any other transactions reference this invoice
+        const otherTx = ctx.db.query.transactions.findFirst({
+          where: eq(transactions.cardInvoiceId, imp.cardInvoiceId),
+        });
+        if (!remainingEntries && !otherImport && !otherTx) {
           ctx.db.delete(cardInvoices)
             .where(eq(cardInvoices.id, imp.cardInvoiceId))
             .run();
         }
       }
 
-      // 6. Delete the import record
-      ctx.db.delete(imports)
-        .where(eq(imports.id, input.id))
-        .run();
-
-      return { deleted: txList.length };
+      return { deleted: txIds.length };
     }),
 });
