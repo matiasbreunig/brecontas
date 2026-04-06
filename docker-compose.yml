@@ -1,0 +1,15 @@
+services:
+  brecontas:
+    build: .
+    container_name: brecontas
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
+    env_file:
+      - .env.production
+    environment:
+      - DATABASE_PATH=/app/data/brecontas.db
+    mem_limit: 512m
