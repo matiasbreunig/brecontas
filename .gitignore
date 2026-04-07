@@ -43,3 +43,10 @@ next-env.d.ts
 # brecontas
 /data/
 /storage/
+
+# claude code — keep commands/skills/agents, ignore ephemeral
+.claude/worktrees/
+.claude/agent-memory/
+.claude/plans/
+.claude/projects/
+.claude/settings.local.json

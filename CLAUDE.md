@@ -4,7 +4,7 @@
 
 Personal finance management system (Brazilian Portuguese UI). Core concept: **financial inbox + reconciliation workbench** — capture chaotic financial data from bank extracts, progressively structure it via rules, AI inference, and manual reconciliation.
 
-Used by Matias and his wife. Not in production — direct DB changes are fine, no migration scaffolding needed.
+Used by Matias and his wife. Runs in production on gwcasa (home server). Direct DB changes are fine, no migration scaffolding needed.
 
 ## Stack
 
@@ -187,17 +187,89 @@ npm run build        # Production build
 npx tsc --noEmit     # Type-check without emitting
 ```
 
+## Deploy (gwcasa)
+
+The app runs on **gwcasa** (192.168.0.254), the home server managed by the `infra-casa` repo.
+
+| Item | Value |
+|------|-------|
+| URL | `https://contas.casa.breunig.com.br` (shortcut: `http://contas`) |
+| Host | gwcasa (192.168.0.254) |
+| Path | `/opt/brecontas/` |
+| Port | 3100 (container) → 3000 (internal) |
+| Proxy | Caddy reverse proxy (HTTPS + Let's Encrypt) |
+
+### Architecture
+
+```
+Client → contas.casa.breunig.com.br (DNS)
+       → gwcasa:443 (Caddy, HTTPS)
+       → gwcasa:3100 (brecontas container, Next.js standalone)
+       → /app/data/brecontas.db (SQLite, volume mount)
+```
+
+### Deploy procedure
+
+```bash
+ssh gwcasa
+cd /opt/brecontas
+git pull
+docker compose up -d --build
+```
+
+### Docker
+
+- `Dockerfile`: multi-stage build (Node 22-slim), compiles better-sqlite3 + canvas natively
+- `docker-compose.yml`: single service, 512MB mem limit, restart unless-stopped
+- Volumes: `./data:/app/data` (DB + uploads), `./storage:/app/storage`
+- DB initialization is lazy (via Proxy) to allow build without `data/` directory
+
+### Environment (production)
+
+File `/opt/brecontas/.env.production` (not versioned):
+```
+AUTH_SECRET=<openssl rand -base64 32>
+AUTH_TRUST_HOST=true
+ANTHROPIC_API_KEY=sk-ant-...
+AI_PROVIDER=anthropic
+AI_MODEL=claude-sonnet-4-20250514
+```
+
+### Testing & troubleshooting
+
+```bash
+# Health check
+curl -sI http://localhost:3100          # direct
+curl -sI https://contas.casa.breunig.com.br  # via proxy (expect 307 → /login)
+
+# Logs
+docker logs brecontas --tail 50
+
+# Recreate
+cd /opt/brecontas && docker compose up -d --build --force-recreate
+
+# DB backup (safe WAL snapshot)
+sqlite3 /opt/brecontas/data/brecontas.db ".backup /tmp/brecontas-backup.db"
+```
+
+All testing and deploys are done on gwcasa — not locally.
+
 ## Database
 
 SQLite at `data/brecontas.db`. Direct access:
 ```bash
+# Local dev
 sqlite3 data/brecontas.db "SELECT count(*) FROM transactions"
+
+# Production (gwcasa)
+docker exec brecontas ls -la /app/data/
 ```
 
 Key tables: `users`, `accounts`, `cards`, `categories`, `tags`, `beneficiaries`, `transactions`, `transaction_tags`, `statement_entries`, `imports`, `reconciliation_rules`, `recurring_templates`
 
 ## Environment variables (.env.local)
 
+For local dev only:
 ```
 AUTH_SECRET=...
 AUTH_TRUST_HOST=true
