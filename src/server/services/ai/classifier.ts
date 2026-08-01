@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getAIProvider } from "./provider";
 import { db } from "@/server/db";
 import { beneficiaries, categories, reconciliationRules, aiClassifications, transactions } from "@/server/db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
 
@@ -131,11 +131,18 @@ export async function classifyTransaction(
   };
 }
 
+/**
+ * Same bar the rule/alias/history level uses (see matchFromHistory in the
+ * import handler). Below it the model's guess is a suggestion, not an answer.
+ */
+const MIN_CONFIDENCE_TO_APPLY = 0.7;
+
 export async function classifyBatch(
   transactionIds: string[],
   userId: string
-): Promise<{ classified: number }> {
+): Promise<{ classified: number; skipped: number }> {
   let classified = 0;
+  let skipped = 0;
 
   for (const txId of transactionIds) {
     const tx = await db.query.transactions.findFirst({
@@ -145,8 +152,25 @@ export async function classifyBatch(
     if (!tx || !tx.description) continue;
     if (tx.status === "reconciled" || tx.status === "discarded") continue;
 
+    // This batch runs in the background, for minutes, while the user is already
+    // reconciling on screen. Only untouched rows are eligible: anything the user
+    // has classified by hand is `identified` and must not be overwritten.
+    if (tx.status !== "unrecognized") {
+      skipped++;
+      continue;
+    }
+
+    const seenUpdatedAt = tx.updatedAt;
+
     try {
       const result = await classifyTransaction(tx.description, userId, txId);
+
+      if (result.confidence < MIN_CONFIDENCE_TO_APPLY) {
+        // classifyTransaction already stored the suggestion in
+        // ai_classifications, where the user can accept it explicitly.
+        skipped++;
+        continue;
+      }
 
       const updateData: Record<string, unknown> = {
         updatedByUserId: userId,
@@ -156,22 +180,35 @@ export async function classifyBatch(
 
       if (result.beneficiaryId) updateData.beneficiaryId = result.beneficiaryId;
       if (result.categoryId) updateData.categoryId = result.categoryId;
-      if (result.suggestedDescription) updateData.description = result.suggestedDescription;
+      // Deliberately not touching `description`. On an imported transaction it
+      // is the bank's own wording, and rewriting it made alias auto-learning
+      // learn the model's prose — which never matches a raw statement line.
 
       if (result.beneficiaryId || result.categoryId) {
         updateData.status = "identified";
       }
 
-      await db
+      // Optimistic guard: if the row changed while the model was thinking, the
+      // user got there first and wins.
+      const updated = await db
         .update(transactions)
         .set(updateData)
-        .where(eq(transactions.id, txId));
+        .where(
+          and(
+            eq(transactions.id, txId),
+            eq(transactions.status, "unrecognized"),
+            seenUpdatedAt === null
+              ? isNull(transactions.updatedAt)
+              : eq(transactions.updatedAt, seenUpdatedAt)
+          )
+        );
 
-      classified++;
+      if (updated.changes === 0) skipped++;
+      else classified++;
     } catch (error) {
       console.error(`Error classifying transaction ${txId}:`, error);
     }
   }
 
-  return { classified };
+  return { classified, skipped };
 }

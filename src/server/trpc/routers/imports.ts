@@ -422,57 +422,60 @@ export const importsRouter = router({
       });
       const txIds = txList.map((tx) => tx.id);
 
-      // Delete in FK-safe order (children before parents):
+      // Delete in FK-safe order (children before parents), all or nothing:
       // ai_classifications → transaction_tags → transactions → statement_entries → import → card_invoice
+      //
+      // better-sqlite3 transactions are synchronous, so the callback must stay
+      // sync — an `await` inside would silently escape the transaction.
+      const cardInvoiceId = imp.cardInvoiceId;
+      ctx.db.transaction((tx) => {
+        if (txIds.length > 0) {
+          tx.delete(aiClassifications)
+            .where(inArray(aiClassifications.transactionId, txIds))
+            .run();
 
-      if (txIds.length > 0) {
-        // 1. Delete ai_classifications (FK → transactions)
-        ctx.db.delete(aiClassifications)
-          .where(inArray(aiClassifications.transactionId, txIds))
-          .run();
+          tx.delete(transactionTags)
+            .where(inArray(transactionTags.transactionId, txIds))
+            .run();
 
-        // 2. Delete transaction_tags (FK → transactions)
-        ctx.db.delete(transactionTags)
-          .where(inArray(transactionTags.transactionId, txIds))
-          .run();
-
-        // 3. Delete transactions (FK → card_invoices, statement_entries)
-        ctx.db.delete(transactions)
-          .where(inArray(transactions.id, txIds))
-          .run();
-      }
-
-      // 4. Delete statement entries (FK → card_invoices)
-      ctx.db.delete(statementEntries)
-        .where(eq(statementEntries.importId, input.id))
-        .run();
-
-      // 5. Delete the import record (before card invoice, no FK to it)
-      ctx.db.delete(imports)
-        .where(eq(imports.id, input.id))
-        .run();
-
-      // 6. Clean up orphaned card invoice (now safe — no more refs)
-      if (imp.cardInvoiceId) {
-        const remainingEntries = ctx.db.query.statementEntries.findFirst({
-          where: eq(statementEntries.cardInvoiceId, imp.cardInvoiceId),
-        });
-        const otherImport = ctx.db.query.imports.findFirst({
-          where: and(
-            eq(imports.cardInvoiceId, imp.cardInvoiceId),
-            sql`${imports.id} != ${input.id}`,
-          ),
-        });
-        // Also check if any other transactions reference this invoice
-        const otherTx = ctx.db.query.transactions.findFirst({
-          where: eq(transactions.cardInvoiceId, imp.cardInvoiceId),
-        });
-        if (!remainingEntries && !otherImport && !otherTx) {
-          ctx.db.delete(cardInvoices)
-            .where(eq(cardInvoices.id, imp.cardInvoiceId))
+          tx.delete(transactions)
+            .where(inArray(transactions.id, txIds))
             .run();
         }
-      }
+
+        tx.delete(statementEntries)
+          .where(eq(statementEntries.importId, input.id))
+          .run();
+
+        tx.delete(imports).where(eq(imports.id, input.id)).run();
+
+        // Clean up the now-orphaned card invoice. These three checks used to be
+        // called without `await`, so each returned an always-truthy promise and
+        // the delete below was dead code: the invoice survived with its old
+        // dueDate and a re-import reused it through cycle matching, poisoning
+        // the cash date of the new transactions. `.get()` is the sync form.
+        if (cardInvoiceId) {
+          const remainingEntries = tx
+            .select({ id: statementEntries.id })
+            .from(statementEntries)
+            .where(eq(statementEntries.cardInvoiceId, cardInvoiceId))
+            .get();
+          const otherImport = tx
+            .select({ id: imports.id })
+            .from(imports)
+            .where(eq(imports.cardInvoiceId, cardInvoiceId))
+            .get();
+          const otherTx = tx
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(eq(transactions.cardInvoiceId, cardInvoiceId))
+            .get();
+
+          if (!remainingEntries && !otherImport && !otherTx) {
+            tx.delete(cardInvoices).where(eq(cardInvoices.id, cardInvoiceId)).run();
+          }
+        }
+      });
 
       return { deleted: txIds.length };
     }),
