@@ -25,20 +25,18 @@ export async function GET(
   }
 
   const pathSegments = (await params).path;
-  const filePath = pathSegments.join("/");
 
-  // Security: ensure the path starts with the user's ID
-  if (!filePath.startsWith(session.user.id)) {
+  // Resolve first, then check ownership against the resolved path. Checking the
+  // raw path first let ".." slip through: "<myId>/%2e%2e/<otherId>/receipt.pdf"
+  // passed the prefix check and only then collapsed into the other user's
+  // directory. Segments arrive already URL-decoded from the App Router.
+  const uploadsRoot = path.resolve(process.cwd(), "data", "uploads");
+  const userRoot = path.join(uploadsRoot, session.user.id);
+  const absPath = path.resolve(uploadsRoot, ...pathSegments);
+
+  if (absPath !== userRoot && !absPath.startsWith(userRoot + path.sep)) {
     return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
   }
-
-  // Prevent path traversal
-  const normalizedPath = path.normalize(filePath);
-  if (normalizedPath.includes("..")) {
-    return NextResponse.json({ error: "Caminho inválido" }, { status: 400 });
-  }
-
-  const absPath = path.join(process.cwd(), "data", "uploads", normalizedPath);
 
   if (!fs.existsSync(absPath)) {
     return NextResponse.json({ error: "Arquivo não encontrado" }, { status: 404 });
