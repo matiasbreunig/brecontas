@@ -1,0 +1,19 @@
+# Nunca entrar nas camadas da imagem: segredos, banco e anexos.
+.env*
+data/
+storage/
+
+.git
+.gitignore
+node_modules
+.next
+out
+
+.claude/
+openspec/
+docs/
+test-data/
+scripts/
+
+*.md
+!README.md
