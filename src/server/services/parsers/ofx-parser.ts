@@ -1,4 +1,5 @@
 import { generateEntryHash, type ParsedEntry } from "./csv-parser";
+import { parseAmount } from "./amount";
 
 interface OfxTransaction {
   TRNTYPE: string;
@@ -41,9 +42,13 @@ function parseOfxDate(dateStr: string): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Several Brazilian banks emit TRNAMT with a comma decimal ("-49,90"). A bare
+ * parseFloat stops at the comma and silently writes -49 into an immutable bank
+ * record, so this goes through the shared parser.
+ */
 function parseOfxAmount(amountStr: string): number {
-  const value = parseFloat(amountStr.trim());
-  return Math.round(value * 100);
+  return parseAmount(amountStr);
 }
 
 function extractTag(content: string, tag: string): string | null {

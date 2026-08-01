@@ -454,12 +454,11 @@ function extractTransactionsFromColumn(
 
     rowNumber++;
 
-    // For card invoices, amounts are expenses (negative)
-    const entryAmount = section === "payments" ? amount : -Math.abs(amount);
-
+    // As printed on the invoice: purchases positive, refunds negative. The
+    // convention is applied once, in the parser-factory's finalizeEntries.
     entries.push({
       entryDate: date,
-      amount: entryAmount,
+      amount,
       rawDescription: description,
       rawData: {
         date: dateStr,

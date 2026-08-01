@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import type { ParsedEntry } from "./csv-parser";
+import { parseAmount as parseSignedAmount } from "./amount";
 
 /**
  * Parse Itaú credit card invoice XLS files.
@@ -28,38 +29,15 @@ interface XlsParseResult {
 // ============================================================================
 
 /**
- * Parse BR-formatted amount string to centavos.
+ * Parse an amount cell to centavos, **keeping the sign printed in the file**.
+ * A refund on an invoice comes in negative and must stay negative here; the
+ * invoice-wide convention is applied once, in the parser-factory.
  * Handles: "R$ 355.05", "-BRL 16,570.90", "$ 1,851.20", "R$ 0,00"
- * Returns amount in centavos (always positive — caller decides sign).
  */
 function parseAmount(raw: string): number | null {
   if (!raw || typeof raw !== "string") return null;
-
-  let cleaned = raw
-    .replace(/^[-+]/, "")
-    .replace(/^(R\$|BRL|\$|USD)\s*/i, "")
-    .replace(/\s/g, "")
-    .trim();
-
-  if (!cleaned) return null;
-
-  // Detect BR format (1.234,56) vs US format (1,234.56)
-  // BR: last separator is comma → decimal
-  // US: last separator is dot → decimal
-  const lastComma = cleaned.lastIndexOf(",");
-  const lastDot = cleaned.lastIndexOf(".");
-
-  if (lastComma > lastDot) {
-    // BR format: dots are thousands, comma is decimal
-    cleaned = cleaned.replace(/\./g, "").replace(",", ".");
-  } else if (lastDot > lastComma) {
-    // US format or Itaú hybrid: commas are thousands, dot is decimal
-    cleaned = cleaned.replace(/,/g, "");
-  }
-
-  const n = parseFloat(cleaned);
-  if (isNaN(n)) return null;
-  return Math.round(Math.abs(n) * 100);
+  if (!raw.replace(/[^\d]/g, "")) return null;
+  return parseSignedAmount(raw);
 }
 
 /**
@@ -197,13 +175,10 @@ export function parseXls(buffer: Buffer): XlsParseResult {
         const amount = parseAmount(c3);
 
         if (date && amount !== null) {
-          // Skip "PAGAMENTO EFETUADO" rows
-          if (c1.toUpperCase().includes("PAGAMENTO EFETUADO")) continue;
-
           rowNumber++;
           entries.push({
             entryDate: date,
-            amount: -amount, // Card invoice: expenses are negative
+            amount, // as printed: the invoice convention is applied downstream
             rawDescription: c1,
             rawData: {
               date: c0,
@@ -254,7 +229,7 @@ export function parseXls(buffer: Buffer): XlsParseResult {
           rowNumber++;
           entries.push({
             entryDate: pendingIntlDate,
-            amount: -amount,
+            amount, // as printed: convention applied downstream
             rawDescription: c1,
             rawData: {
               date: pendingIntlDate,
@@ -281,7 +256,7 @@ export function parseXls(buffer: Buffer): XlsParseResult {
         rowNumber++;
         entries.push({
           entryDate: date,
-          amount: -amount,
+          amount, // as printed: convention applied downstream
           rawDescription: c1,
           rawData: {
             date: c0,

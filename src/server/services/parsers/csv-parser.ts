@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import { createHash } from "crypto";
+import { parseAmount } from "./amount";
 
 export interface ParsedEntry {
   entryDate: string; // ISO date
@@ -50,29 +51,6 @@ function parseDateToISO(dateStr: string, format: string): string {
   return dateStr;
 }
 
-function parseAmount(value: string): number {
-  if (!value || value.trim() === "") return 0;
-
-  let cleaned = value.replace(/[R$\s]/g, "").trim();
-
-  // Detect format by looking at the last separator:
-  // BR format: "1.234,56" → last separator is comma → decimal
-  // US format: "1,234.56" or "355.05" → last separator is dot → decimal
-  const lastComma = cleaned.lastIndexOf(",");
-  const lastDot = cleaned.lastIndexOf(".");
-
-  if (lastComma > lastDot) {
-    // BR format: dots are thousands, comma is decimal
-    cleaned = cleaned.replace(/\./g, "").replace(",", ".");
-  } else if (lastDot > lastComma) {
-    // US format: commas are thousands, dot is decimal
-    cleaned = cleaned.replace(/,/g, "");
-  }
-  // If neither exists, it's a plain integer
-
-  return Math.round(parseFloat(cleaned) * 100);
-}
-
 export function generateEntryHash(date: string, amount: number, description: string): string {
   const input = `${date}|${amount}|${description}`;
   return createHash("sha256").update(input).digest("hex").slice(0, 32);
@@ -112,11 +90,9 @@ export function parseCsv(
       const debit = parseAmount(row[config.debitColumn] || "0");
       amount = credit > 0 ? credit : -debit;
     } else {
+      // Faithful to the file. `amountIsNegativeForDebit` declares the file's
+      // convention; applying it is finalizeEntries' job in the parser-factory.
       amount = parseAmount(row[config.amountColumn]);
-      if (!config.amountIsNegativeForDebit) {
-        // If positive always, need to figure from context — default to negative (expense)
-        amount = -Math.abs(amount);
-      }
     }
 
     const entryDate = parseDateToISO(dateStr, config.dateFormat);
@@ -284,6 +260,12 @@ export interface SpecialEntryInfo {
   suggestedCategory?: string; // category name hint
   type: "expense" | "income";
   isCharge: boolean; // fees, interest, etc.
+  /**
+   * Line exists in the file but must not become a transaction. The invoice
+   * payment is the case: its purchases are already booked individually, so
+   * importing the payment too would double-count the month.
+   */
+  skip?: boolean;
 }
 
 const SPECIAL_ENTRIES: Record<string, SpecialEntryInfo> = {
@@ -291,7 +273,7 @@ const SPECIAL_ENTRIES: Record<string, SpecialEntryInfo> = {
   "JUROS DE MORA": { isSpecial: true, suggestedCategory: "Encargos Bancários", type: "expense", isCharge: true },
   "ENCARGOS REFINANCIAMENTO": { isSpecial: true, suggestedCategory: "Encargos Bancários", type: "expense", isCharge: true },
   "IOF": { isSpecial: true, suggestedCategory: "Impostos", type: "expense", isCharge: true },
-  "PAGAMENTO EFETUADO": { isSpecial: true, suggestedCategory: "Pagamento Fatura", type: "income", isCharge: false },
+  "PAGAMENTO EFETUADO": { isSpecial: true, suggestedCategory: "Pagamento Fatura", type: "expense", isCharge: false, skip: true },
 };
 
 export function classifySpecialEntry(description: string): SpecialEntryInfo | null {

@@ -285,6 +285,44 @@ export async function detectImportSettings(content: string, filename: string): P
 // PARSE (full parse with enrichment)
 // ============================================================================
 
+/**
+ * The one place where the sign convention lives.
+ *
+ * Parsers emit the amount exactly as printed in the file. Here it is normalised
+ * to the system convention — **negative means money leaves** — the skipped
+ * lines are dropped, and only then is the hash computed, so it always reflects
+ * the final amount.
+ *
+ * `debitPositive` describes the *file*: a credit card invoice prints purchases
+ * as positive numbers and refunds as negative, the opposite of a bank
+ * statement. Inverting it here, once, replaces the four near-identical tails
+ * this function used to have — which is how the CSV path ended up inverting
+ * twice and importing every purchase as income.
+ */
+function finalizeEntries(
+  rawEntries: ParsedEntry[],
+  opts: { mode: ImportMode; debitPositive: boolean },
+): (ParsedEntry & { hash: string })[] {
+  const finalized: (ParsedEntry & { hash: string })[] = [];
+
+  for (const entry of rawEntries) {
+    if (opts.mode === "card_invoice") {
+      const special = classifySpecialEntry(entry.rawDescription);
+      if (special?.skip) continue;
+    }
+
+    const amount = opts.debitPositive ? -entry.amount : entry.amount;
+
+    finalized.push({
+      ...entry,
+      amount,
+      hash: generateEntryHash(entry.entryDate, amount, entry.rawDescription),
+    });
+  }
+
+  return finalized;
+}
+
 export async function parseFile(
   content: string,
   filename: string,
@@ -296,10 +334,11 @@ export async function parseFile(
   if (format === "pdf") {
     const buffer = Buffer.from(content, "base64");
     const result = await parsePdf(buffer);
-    const entries = result.entries.map((e) => ({
-      ...e,
-      hash: generateEntryHash(e.entryDate, e.amount, e.rawDescription),
-    }));
+    // The invoice prints purchases as positive and refunds as negative.
+    const entries = finalizeEntries(result.entries, {
+      mode: "card_invoice",
+      debitPositive: true,
+    });
     const enrichments = enrichEntries(entries, "card_invoice");
     return {
       entries,
@@ -315,10 +354,11 @@ export async function parseFile(
   if (format === "xls") {
     const buffer = Buffer.from(content, "base64");
     const result = parseXls(buffer);
-    const entries = result.entries.map((e) => ({
-      ...e,
-      hash: generateEntryHash(e.entryDate, e.amount, e.rawDescription),
-    }));
+    // Itaú prints invoice purchases as positive and refunds as negative.
+    const entries = finalizeEntries(result.entries, {
+      mode: "card_invoice",
+      debitPositive: true,
+    });
     const enrichments = enrichEntries(entries, "card_invoice");
     return {
       entries,
@@ -341,10 +381,11 @@ export async function parseFile(
 
   if (format === "ofx") {
     const result = parseOfx(content);
-    const entries = result.entries.map((e) => ({
-      ...e,
-      hash: generateEntryHash(e.entryDate, e.amount, e.rawDescription),
-    }));
+    // OFX TRNAMT is already signed per the spec.
+    const entries = finalizeEntries(result.entries, {
+      mode,
+      debitPositive: false,
+    });
     return {
       entries,
       format: "ofx",
@@ -381,19 +422,9 @@ export async function parseFile(
 
   const rawEntries = parseCsv(content, config);
 
-  // For card invoices with non-negative-debit config, invert amount semantics
-  const entries = rawEntries.map((e) => {
-    let amount = e.amount;
-    if (mode === "card_invoice" && !config.amountIsNegativeForDebit) {
-      // Itaú fatura: positive = expense, negative = credit/payment
-      // Our system: negative = debit, positive = credit
-      amount = -amount;
-    }
-    return {
-      ...e,
-      amount,
-      hash: generateEntryHash(e.entryDate, amount, e.rawDescription),
-    };
+  const entries = finalizeEntries(rawEntries, {
+    mode,
+    debitPositive: !config.amountIsNegativeForDebit,
   });
 
   const enrichments = enrichEntries(entries, mode);

@@ -146,10 +146,12 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
         createdAt: now,
       }).run();
 
-      // Auto-create transaction
+      // Auto-create transaction.
+      // The sign is the single source of truth for the type — it was normalised
+      // once in the parser-factory. Honouring enrichment.suggestedType here is
+      // what used to import the invoice payment line as income.
       const transactionId = generateId();
-      const isCredit = entry.amount >= 0;
-      const baseType = isCredit ? "income" as const : "expense" as const;
+      const baseType = entry.amount >= 0 ? ("income" as const) : ("expense" as const);
 
       db.insert(transactions).values({
         id: transactionId,
@@ -157,7 +159,7 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
         accountId,
         cardId: cardId ?? null,
         cardInvoiceId: cardInvoiceId ?? null,
-        type: enrichment?.suggestedType || baseType,
+        type: baseType,
         amount: Math.abs(entry.amount),
         date: invoiceDueDate || entry.entryDate,
         competenceDate: invoiceDueDate ? entry.entryDate : null,
@@ -398,17 +400,15 @@ function findOrCreateCardInvoice(
 }
 
 function updateInvoiceTotal(cardInvoiceId: string): void {
+  // Debits minus refunds. Summing ABS() of debits only used to both zero the
+  // total (when purchases came out positive) and overstate it (by counting a
+  // refund as one more purchase).
   const result = db
     .select({
-      total: sql<number>`COALESCE(SUM(ABS(amount)), 0)`,
+      total: sql<number>`COALESCE(SUM(-amount), 0)`,
     })
     .from(statementEntries)
-    .where(
-      and(
-        eq(statementEntries.cardInvoiceId, cardInvoiceId),
-        sql`amount < 0`, // Only debits count toward invoice total
-      ),
-    )
+    .where(eq(statementEntries.cardInvoiceId, cardInvoiceId))
     .get();
 
   if (result) {
