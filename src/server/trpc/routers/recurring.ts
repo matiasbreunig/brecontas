@@ -40,7 +40,9 @@ export const recurringRouter = router({
         estimatedAmount: z.number().int().positive(),
         paymentMethod: z.enum(["pix", "debit", "credit", "transfer", "boleto", "cash", "other"]).optional(),
         frequency: z.enum(["monthly", "weekly", "biweekly", "quarterly", "yearly", "custom"]),
-        customIntervalDays: z.number().int().optional(),
+        // A negative interval walked the date backwards, so the while loop in
+        // generateDates never terminated and hung the process.
+        customIntervalDays: z.number().int().min(1).optional(),
         dayOfMonth: z.number().int().min(1).max(31).optional(),
         startDate: z.string(),
         endDate: z.string().optional(),
@@ -246,14 +248,29 @@ function generateDates(
 
   let current = new Date(start);
 
+  // Belt and braces: zod rejects a non-positive interval on create, but a row
+  // written before that guard existed would make nextOccurrence walk backwards
+  // (or stand still) and hang the request forever.
+  const MAX_ITERATIONS = 10_000;
+  let iterations = 0;
+  const advance = (): Date => {
+    const next = nextOccurrence(current, template);
+    if (next <= current || ++iterations > MAX_ITERATIONS) {
+      throw new Error(
+        "Intervalo inválido no lançamento recorrente: não avança no tempo"
+      );
+    }
+    return next;
+  };
+
   // Advance to first date >= from
   while (current < from) {
-    current = nextOccurrence(current, template);
+    current = advance();
   }
 
   while (current <= effectiveEnd) {
     dates.push(new Date(current));
-    current = nextOccurrence(current, template);
+    current = advance();
   }
 
   return dates;

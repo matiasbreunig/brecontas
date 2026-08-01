@@ -131,6 +131,7 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
 
       db.insert(statementEntries).values({
         id: entryId,
+        userId,
         importId,
         accountId,
         cardId: cardId ?? null,

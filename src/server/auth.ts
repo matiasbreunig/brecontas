@@ -3,11 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { db } from "./db";
 import { users } from "./db/schema";
 import { eq } from "drizzle-orm";
-import crypto from "crypto";
-
-function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
+import { verifyPassword } from "./password";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -30,9 +26,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           .get();
 
         if (!user) return null;
-
-        const hash = hashPassword(password);
-        if (hash !== user.passwordHash) return null;
+        if (!verifyPassword(password, user.passwordHash)) return null;
 
         return {
           id: user.id,

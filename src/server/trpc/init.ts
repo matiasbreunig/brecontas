@@ -14,10 +14,35 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Não autenticado" });
   }
 
+  const userId = ctx.session.user.id;
+
   return next({
     ctx: {
       ...ctx,
-      userId: ctx.session.user.id,
+      userId,
+      /**
+       * Fetch a row and prove it belongs to the caller.
+       *
+       * Scoping used to be applied by hand in every procedure, and the ones
+       * that forgot (payInvoice, ai.acceptSuggestion, convertEntries) let one
+       * spouse read and mutate the other's records. Reaching for this instead
+       * of a bare `eq(table.id, input.id)` keeps that a one-liner.
+       *
+       * Returns NOT_FOUND rather than FORBIDDEN so a probe cannot use the
+       * status code to learn whether an id exists.
+       */
+      requireOwned: <T extends { id: string; userId: string }>(
+        row: T | undefined,
+        label = "Registro",
+      ): T => {
+        if (!row || row.userId !== userId) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `${label} não encontrado`,
+          });
+        }
+        return row;
+      },
     },
   });
 });

@@ -5,6 +5,7 @@ import * as schema from "./schema";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { hashPassword } from "../password";
 
 const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "brecontas.db");
 
@@ -17,8 +18,14 @@ sqlite.pragma("foreign_keys = ON");
 
 const db = drizzle(sqlite, { schema });
 
-function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
+/**
+ * Seed passwords are generated, never literals: this repository is readable by
+ * anyone who can clone it, and the previous hard-coded "admin123" stayed the
+ * live password of both production accounts for months.
+ * Set SEED_PASSWORD to choose them yourself.
+ */
+function seedPassword(): string {
+  return process.env.SEED_PASSWORD || crypto.randomBytes(12).toString("base64url");
 }
 
 function id(): string {
@@ -34,12 +41,17 @@ async function seed() {
   const matiasId = id();
   const esposaId = id();
 
+  const matiasPassword = seedPassword();
+  const esposaPassword = seedPassword();
+
   db.insert(schema.users).values([
-    { id: matiasId, name: "Matias", email: "matias@brecontas.local", passwordHash: hashPassword("admin123"), createdAt: now },
-    { id: esposaId, name: "Esposa", email: "esposa@brecontas.local", passwordHash: hashPassword("admin123"), createdAt: now },
+    { id: matiasId, name: "Matias", email: "matias@brecontas.local", passwordHash: hashPassword(matiasPassword), createdAt: now },
+    { id: esposaId, name: "Esposa", email: "esposa@brecontas.local", passwordHash: hashPassword(esposaPassword), createdAt: now },
   ]).run();
 
-  console.log("✓ Users created");
+  console.log("✓ Users created — anote as senhas, elas não voltam a aparecer:");
+  console.log(`    matias@brecontas.local  ${matiasPassword}`);
+  console.log(`    esposa@brecontas.local  ${esposaPassword}`);
 
   // Categories - Brazilian defaults
   const catData: Array<{ name: string; icon: string; type: "expense" | "income" | "both"; children?: Array<{ name: string; icon: string }> }> = [

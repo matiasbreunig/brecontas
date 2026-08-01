@@ -69,11 +69,20 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Scoped: an unscoped lookup let another user's suggested category and
+      // beneficiary — foreign keys pointing at entities the caller doesn't own —
+      // be written onto the caller's own transaction.
       const classification = await ctx.db.query.aiClassifications.findFirst({
-        where: eq(aiClassifications.id, input.classificationId),
+        where: and(
+          eq(aiClassifications.id, input.classificationId),
+          eq(aiClassifications.userId, ctx.userId)
+        ),
       });
 
       if (!classification) throw new Error("Classificação não encontrada");
+      if (classification.transactionId !== input.transactionId) {
+        throw new Error("Sugestão não pertence a esta transação");
+      }
 
       // Apply suggestion
       const updateData: Record<string, unknown> = {
@@ -96,7 +105,12 @@ export const aiRouter = router({
       await ctx.db
         .update(aiClassifications)
         .set({ wasAccepted: 1 })
-        .where(eq(aiClassifications.id, input.classificationId));
+        .where(
+          and(
+            eq(aiClassifications.id, input.classificationId),
+            eq(aiClassifications.userId, ctx.userId)
+          )
+        );
     }),
 
   // Reject AI suggestion
@@ -114,7 +128,12 @@ export const aiRouter = router({
           wasAccepted: 0,
           userCorrection: input.correction ?? null,
         })
-        .where(eq(aiClassifications.id, input.classificationId));
+        .where(
+          and(
+            eq(aiClassifications.id, input.classificationId),
+            eq(aiClassifications.userId, ctx.userId)
+          )
+        );
     }),
 
   // Ask a question about finances

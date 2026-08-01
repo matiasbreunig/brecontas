@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../init";
-import { statementEntries, imports } from "@/server/db/schema";
+import { statementEntries } from "@/server/db/schema";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 
+// Every procedure here is scoped by userId. The column exists on the table now,
+// so this looks like the other twelve routers instead of needing a join.
 export const statementEntriesRouter = router({
   list: protectedProcedure
     .input(
@@ -17,9 +19,8 @@ export const statementEntriesRouter = router({
       }).default({ limit: 100, offset: 0 })
     )
     .query(async ({ ctx, input }) => {
-      const conditions = [];
+      const conditions = [eq(statementEntries.userId, ctx.userId)];
 
-      // Join with imports to filter by user
       if (input.accountId) conditions.push(eq(statementEntries.accountId, input.accountId));
       if (input.importId) conditions.push(eq(statementEntries.importId, input.importId));
       if (input.status) conditions.push(eq(statementEntries.status, input.status));
@@ -27,7 +28,7 @@ export const statementEntriesRouter = router({
       if (input.dateTo) conditions.push(lte(statementEntries.entryDate, input.dateTo));
 
       const items = await ctx.db.query.statementEntries.findMany({
-        where: conditions.length > 0 ? and(...conditions) : undefined,
+        where: and(...conditions),
         with: {
           account: true,
           card: true,
@@ -44,7 +45,10 @@ export const statementEntriesRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.db.query.statementEntries.findFirst({
-        where: eq(statementEntries.id, input.id),
+        where: and(
+          eq(statementEntries.id, input.id),
+          eq(statementEntries.userId, ctx.userId)
+        ),
         with: {
           account: true,
           card: true,
@@ -59,7 +63,12 @@ export const statementEntriesRouter = router({
       await ctx.db
         .update(statementEntries)
         .set({ status: "skipped" })
-        .where(eq(statementEntries.id, input.id));
+        .where(
+          and(
+            eq(statementEntries.id, input.id),
+            eq(statementEntries.userId, ctx.userId)
+          )
+        );
     }),
 
   stats: protectedProcedure
@@ -69,7 +78,7 @@ export const statementEntriesRouter = router({
       }).default({})
     )
     .query(async ({ ctx, input }) => {
-      const conditions = [];
+      const conditions = [eq(statementEntries.userId, ctx.userId)];
       if (input.accountId) conditions.push(eq(statementEntries.accountId, input.accountId));
 
       const result = ctx.db
@@ -81,7 +90,7 @@ export const statementEntriesRouter = router({
           duplicate: sql<number>`SUM(CASE WHEN ${statementEntries.status} = 'duplicate' THEN 1 ELSE 0 END)`,
         })
         .from(statementEntries)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .where(and(...conditions))
         .get();
 
       return result;

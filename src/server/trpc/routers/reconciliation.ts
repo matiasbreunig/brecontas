@@ -397,7 +397,8 @@ export const reconciliationRouter = router({
         updatedAt: now,
       });
 
-      // Update invoice status
+      // Update invoice status — scoped, or one spouse could mark the other's
+      // invoice as paid and point it at a transaction of their own.
       await ctx.db
         .update(cardInvoices)
         .set({
@@ -405,7 +406,12 @@ export const reconciliationRouter = router({
           paymentTransactionId: transactionId,
           updatedAt: now,
         })
-        .where(eq(cardInvoices.id, input.cardInvoiceId));
+        .where(
+          and(
+            eq(cardInvoices.id, input.cardInvoiceId),
+            eq(cardInvoices.userId, ctx.userId)
+          )
+        );
 
       return { transactionId };
     }),

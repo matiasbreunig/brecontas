@@ -1,42 +1,45 @@
 #!/bin/bash
 # Reset all transactional data (keeps structure: accounts, cards, categories, tags, beneficiaries, users)
 # Usage: bash scripts/reset-transactions.sh
+#
+# Runs through the container: there is no sqlite3 CLI on gwcasa, and the native
+# better-sqlite3 binding only exists inside the image.
 
-DB="data/brecontas.db"
+set -euo pipefail
 
-if [ ! -f "$DB" ]; then
-  echo "❌ DB not found at $DB"
+CONTAINER="${BRECONTAS_CONTAINER:-brecontas}"
+DB="${BRECONTAS_DB:-/app/data/brecontas.db}"
+
+if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+  echo "❌ Container '$CONTAINER' não está rodando" >&2
   exit 1
 fi
 
-echo "📊 Antes:"
-sqlite3 "$DB" "
-  SELECT '  transactions: ' || COUNT(*) FROM transactions;
-  SELECT '  statement_entries: ' || COUNT(*) FROM statement_entries;
-  SELECT '  imports: ' || COUNT(*) FROM imports;
-  SELECT '  card_invoices: ' || COUNT(*) FROM card_invoices;
-  SELECT '  transaction_tags: ' || COUNT(*) FROM transaction_tags;
-  SELECT '  ai_classifications: ' || COUNT(*) FROM ai_classifications;
-"
+docker exec "$CONTAINER" node -e "
+const Database = require('/app/node_modules/better-sqlite3');
+const db = new Database('${DB}');
+db.pragma('foreign_keys = ON');
 
-# Order matters: respect FK constraints
-sqlite3 "$DB" "
-  PRAGMA foreign_keys = OFF;
-  DELETE FROM ai_classifications;
-  DELETE FROM transaction_tags;
-  DELETE FROM transactions;
-  DELETE FROM statement_entries;
-  DELETE FROM imports;
-  DELETE FROM card_invoices;
-  PRAGMA foreign_keys = ON;
-"
+const TRANSACTIONAL = [
+  'ai_classifications',
+  'transaction_tags',
+  'transactions',
+  'statement_entries',
+  'imports',
+  'card_invoices',
+];
+const KEPT = ['users', 'accounts', 'cards', 'categories', 'tags', 'beneficiaries'];
+const count = (t) => db.prepare('SELECT count(*) c FROM ' + t).get().c;
 
-echo ""
-echo "✅ Limpo. Mantidos:"
-sqlite3 "$DB" "
-  SELECT '  accounts: ' || COUNT(*) FROM accounts;
-  SELECT '  cards: ' || COUNT(*) FROM cards;
-  SELECT '  categories: ' || COUNT(*) FROM categories;
-  SELECT '  tags: ' || COUNT(*) FROM tags;
-  SELECT '  beneficiaries: ' || COUNT(*) FROM beneficiaries;
+console.log('📊 Antes:');
+for (const t of TRANSACTIONAL) console.log('  ' + t + ': ' + count(t));
+
+// Order respects FK constraints, so they stay enforced throughout.
+db.transaction(() => {
+  for (const t of TRANSACTIONAL) db.prepare('DELETE FROM ' + t).run();
+})();
+
+console.log('');
+console.log('✅ Limpo. Mantidos:');
+for (const t of KEPT) console.log('  ' + t + ': ' + count(t));
 "

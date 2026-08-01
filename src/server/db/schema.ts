@@ -146,6 +146,11 @@ export const inboxItems = sqliteTable("inbox_items", {
 
 export const statementEntries = sqliteTable("statement_entries", {
   id: text("id").primaryKey(),
+  // Every other table carries userId and every other router filters by it.
+  // This one didn't, which is why statement-entries.ts had a "join with imports
+  // to filter by user" comment and no join — one spouse could list and skip the
+  // other's raw bank lines.
+  userId: text("user_id").notNull().references(() => users.id),
   importId: text("import_id").notNull(),
   accountId: text("account_id").references(() => accounts.id),
   cardId: text("card_id").references(() => cards.id),
