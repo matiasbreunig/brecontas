@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../init";
-import { categories } from "@/server/db/schema";
+import { categories, transactions } from "@/server/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
@@ -71,6 +72,27 @@ export const categoriesRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // Deleting a category still in use raised a raw foreign-key error, which
+      // surfaced as an unexplained failure. Say what is in the way instead.
+      const inUse = ctx.db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.categoryId, input.id),
+            eq(transactions.userId, ctx.userId)
+          )
+        )
+        .get();
+
+      if (inUse) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Esta categoria está em uso por transações. Troque a categoria delas antes de excluir.",
+        });
+      }
+
       // Move children to root before deleting
       await ctx.db
         .update(categories)

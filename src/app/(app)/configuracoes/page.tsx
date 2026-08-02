@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -121,28 +122,29 @@ function CategoriesTab() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Tipo</Label>
-                  <Select name="type" defaultValue="expense">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="expense">Despesa</SelectItem>
-                      <SelectItem value="income">Receita</SelectItem>
-                      <SelectItem value="both">Ambos</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <OptionSelect
+                    name="type"
+                    defaultValue="expense"
+                    options={[
+                      { value: "expense", label: "Despesa" },
+                      { value: "income", label: "Receita" },
+                      { value: "both", label: "Ambos" },
+                    ]}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Grupo pai</Label>
-                  <Select name="parentId" defaultValue="__none__">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Nenhum (raiz)</SelectItem>
-                      {parentOptions.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.icon} {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <OptionSelect
+                    name="parentId"
+                    defaultValue="__none__"
+                    options={[
+                      { value: "__none__", label: "Nenhum (raiz)" },
+                      ...parentOptions.map((p) => ({
+                        value: p.id,
+                        label: `${p.icon ?? ""} ${p.name}`.trim(),
+                      })),
+                    ]}
+                  />
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={createCategory.isPending}>
@@ -527,17 +529,19 @@ function BeneficiariesTab() {
               </div>
               <div className="space-y-2">
                 <Label>Categoria padrão</Label>
-                <Select name="defaultCategoryId" defaultValue="__none__">
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Nenhuma</SelectItem>
-                    {categories?.filter(c => c.isActive).map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>
-                        {cat.icon} {cat.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <OptionSelect
+                  name="defaultCategoryId"
+                  defaultValue="__none__"
+                  options={[
+                    { value: "__none__", label: "Nenhuma" },
+                    ...(categories ?? [])
+                      .filter((c) => c.isActive)
+                      .map((cat) => ({
+                        value: cat.id,
+                        label: `${cat.icon ?? ""} ${cat.name}`.trim(),
+                      })),
+                  ]}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Notas</Label>
@@ -855,14 +859,15 @@ function RulesTab() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Tipo de match</Label>
-                    <Select name="matchType" defaultValue="contains">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="exact">Exato</SelectItem>
-                        <SelectItem value="contains">Contém</SelectItem>
-                        <SelectItem value="regex">Regex</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <OptionSelect
+                      name="matchType"
+                      defaultValue="contains"
+                      options={[
+                        { value: "exact", label: "Exato" },
+                        { value: "contains", label: "Contém" },
+                        { value: "regex", label: "Regex" },
+                      ]}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Prioridade</Label>
@@ -871,42 +876,42 @@ function RulesTab() {
                 </div>
                 <div className="space-y-2">
                   <Label>Favorecido</Label>
-                  <Select name="beneficiaryId" defaultValue="__none__">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Nenhum</SelectItem>
-                      {beneficiariesData?.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <OptionSelect
+                    name="beneficiaryId"
+                    defaultValue="__none__"
+                    options={[
+                      { value: "__none__", label: "Nenhum" },
+                      ...(beneficiariesData ?? []).map((b) => ({ value: b.id, label: b.name })),
+                    ]}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Categoria</Label>
-                    <Select name="categoryId" defaultValue="__none__">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Nenhuma</SelectItem>
-                        {categoriesData?.filter(c => c.isActive).map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            {cat.icon} {cat.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <OptionSelect
+                      name="categoryId"
+                      defaultValue="__none__"
+                      options={[
+                        { value: "__none__", label: "Nenhuma" },
+                        ...(categoriesData ?? [])
+                          .filter((c) => c.isActive)
+                          .map((cat) => ({
+                            value: cat.id,
+                            label: `${cat.icon ?? ""} ${cat.name}`.trim(),
+                          })),
+                      ]}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Pagamento</Label>
-                    <Select name="paymentMethod" defaultValue="__none__">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Nenhum</SelectItem>
-                        {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => (
-                          <SelectItem key={k} value={k}>{v}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <OptionSelect
+                      name="paymentMethod"
+                      defaultValue="__none__"
+                      options={[
+                        { value: "__none__", label: "Nenhum" },
+                        ...Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => ({ value: k, label: v })),
+                      ]}
+                    />
                   </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={createRule.isPending}>

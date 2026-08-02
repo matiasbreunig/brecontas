@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -95,14 +96,11 @@ export default function ContasPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="type">Tipo</Label>
-                  <Select name="type" defaultValue="checking">
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(ACCOUNT_TYPE_LABELS).map(([key, label]) => (
-                        <SelectItem key={key} value={key}>{label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <OptionSelect
+                    name="type"
+                    defaultValue="checking"
+                    options={Object.entries(ACCOUNT_TYPE_LABELS).map(([key, label]) => ({ value: key, label }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="institution">Instituição</Label>

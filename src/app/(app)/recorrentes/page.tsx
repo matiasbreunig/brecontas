@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
@@ -147,13 +148,14 @@ export default function RecorrentesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Tipo</Label>
-                    <Select name="type" defaultValue="expense">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="expense">Despesa</SelectItem>
-                        <SelectItem value="income">Receita</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <OptionSelect
+                      name="type"
+                      defaultValue="expense"
+                      options={[
+                        { value: "expense", label: "Despesa" },
+                        { value: "income", label: "Receita" },
+                      ]}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Valor estimado (R$)</Label>
@@ -163,14 +165,11 @@ export default function RecorrentesPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>Frequência</Label>
-                    <Select name="frequency" defaultValue="monthly">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(FREQUENCY_LABELS).map(([k, v]) => (
-                          <SelectItem key={k} value={k}>{v}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <OptionSelect
+                      name="frequency"
+                      defaultValue="monthly"
+                      options={Object.entries(FREQUENCY_LABELS).map(([k, v]) => ({ value: k, label: v }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Dia do mês</Label>

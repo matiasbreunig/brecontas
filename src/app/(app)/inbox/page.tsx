@@ -223,8 +223,12 @@ export default function InboxPage() {
 
     setConvertForm(newForm);
     setFieldStates(newStates);
+    // `convertDialogOpen` and `selectedItem` belong in the deps, not just in the
+    // guard above. Reopening the *same* item hit the query cache, which returns
+    // the same object reference, so the effect never re-ran and the form came up
+    // empty — while a different item worked, because its key was new.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inferenceData]);
+  }, [inferenceData, convertDialogOpen, selectedItem]);
 
   const createMutation = trpc.inbox.create.useMutation({
     onSuccess: () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../init";
-import { beneficiaries } from "@/server/db/schema";
+import { beneficiaries, transactions } from "@/server/db/schema";
 import { eq, and } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
@@ -74,6 +75,26 @@ export const beneficiariesRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // Same as categories: a raw foreign-key error told the user nothing.
+      const inUse = ctx.db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.beneficiaryId, input.id),
+            eq(transactions.userId, ctx.userId)
+          )
+        )
+        .get();
+
+      if (inUse) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "Este favorecido está em uso por transações. Troque o favorecido delas antes de excluir.",
+        });
+      }
+
       await ctx.db
         .delete(beneficiaries)
         .where(and(eq(beneficiaries.id, input.id), eq(beneficiaries.userId, ctx.userId)));
