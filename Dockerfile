@@ -1,9 +1,13 @@
 FROM node:22-slim AS base
 
-# Install dependencies for better-sqlite3 and canvas (pdf.js-extract)
-RUN apt-get update && apt-get install -y \
+# Toolchain to compile better-sqlite3, the only native module here.
+#
+# The cairo/pango/jpeg/gif/rsvg -dev packages used to live here too, for
+# `canvas` — but canvas is not a dependency of this project (it only appears in
+# next.config.ts's serverExternalPackages list). pdf.js-extract reads text and
+# needs none of them; verified by extracting from a PDF in the final image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ \
-    libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
@@ -17,7 +21,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM base AS runner
+# The runner deliberately does NOT inherit from `base`: that stage carries the
+# build toolchain, which nothing needs at runtime. The native modules arrive
+# already compiled from `builder`, against the same base image, so the ABI
+# matches and no extra shared library is required.
+FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
