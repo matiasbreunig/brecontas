@@ -8,6 +8,9 @@ import { generateEntryHash } from "@/server/services/parsers/csv-parser";
 import { matchFromHistory } from "@/server/services/inference/history-matcher";
 import { classifyBatch } from "@/server/services/ai/classifier";
 
+/** The db handle or a transaction handle — same query surface. */
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export interface ImportJobPayload {
   importId: string;
   content: string;
@@ -103,112 +106,43 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
       }
     }
 
-    for (const entry of result.entries) {
-      const hash = generateEntryHash(entry.entryDate, entry.amount, entry.rawDescription);
+    // ── Fase "plan": tudo que precisa de await acontece aqui, só leitura ──
+    //
+    // better-sqlite3 é síncrono: `db.transaction()` não aceita `await` dentro.
+    // Por isso a classificação (nível 1) roda antes, e a fase de escrita fica
+    // livre de I/O assíncrono — é o que torna o import atômico.
+    const planned = result.entries.map((entry) => ({
+      entry,
+      hash: generateEntryHash(entry.entryDate, entry.amount, entry.rawDescription),
+      entryId: generateId(),
+      transactionId: generateId(),
+      enrichment: enrichmentMap.get(entry.rowNumber),
+      updates: {} as Record<string, unknown>,
+      tagIds: [] as string[],
+      classified: false,
+    }));
 
-      // Check for duplicates within same account/card
-      const duplicateConditions = [eq(statementEntries.hash, hash)];
-      if (cardId) {
-        duplicateConditions.push(eq(statementEntries.cardId, cardId));
-      } else {
-        duplicateConditions.push(eq(statementEntries.accountId, accountId));
-      }
+    for (const plan of planned) {
+      const description = plan.enrichment?.cleanDescription || plan.entry.rawDescription;
 
-      const existingEntry = db
-        .select()
-        .from(statementEntries)
-        .where(and(...duplicateConditions))
-        .get();
-
-      if (existingEntry) {
-        duplicatesSkipped++;
-        continue;
-      }
-
-      // Create statement entry (immutable bank data)
-      const entryId = generateId();
-      const enrichment = enrichmentMap.get(entry.rowNumber);
-
-      db.insert(statementEntries).values({
-        id: entryId,
-        userId,
-        importId,
-        accountId,
-        cardId: cardId ?? null,
-        cardInvoiceId: cardInvoiceId ?? null,
-        entryDate: entry.entryDate,
-        amount: entry.amount,
-        rawDescription: entry.rawDescription,
-        balanceAfter: entry.balanceAfter ?? null,
-        rowNumber: entry.rowNumber,
-        rawData: JSON.stringify(entry.rawData),
-        hash,
-        status: "pending",
-        createdAt: now,
-      }).run();
-
-      // Auto-create transaction.
-      // The sign is the single source of truth for the type — it was normalised
-      // once in the parser-factory. Honouring enrichment.suggestedType here is
-      // what used to import the invoice payment line as income.
-      const transactionId = generateId();
-      const baseType = entry.amount >= 0 ? ("income" as const) : ("expense" as const);
-
-      db.insert(transactions).values({
-        id: transactionId,
-        userId,
-        accountId,
-        cardId: cardId ?? null,
-        cardInvoiceId: cardInvoiceId ?? null,
-        type: baseType,
-        amount: Math.abs(entry.amount),
-        date: invoiceDueDate || entry.entryDate,
-        competenceDate: invoiceDueDate ? entry.entryDate : null,
-        description: enrichment?.cleanDescription || entry.rawDescription,
-        paymentMethod: cardId ? "credit" : detectPaymentMethod(entry.rawDescription),
-        status: "unrecognized",
-        source: "import",
-        statementEntryId: entryId,
-        importId,
-        installmentCurrent: enrichment?.installmentCurrent ?? null,
-        installmentTotal: enrichment?.installmentTotal ?? null,
-        createdByUserId: userId,
-        createdAt: now,
-        updatedByUserId: userId,
-        updatedAt: now,
-      }).run();
-
-      // Link statement entry to transaction
-      db.update(statementEntries)
-        .set({ status: "matched", transactionId })
-        .where(eq(statementEntries.id, entryId))
-        .run();
-
-      // ── Nível 1: Rules + Aliases + History match (síncrono, grátis) ──
+      // ── Nível 1: Rules + Aliases + History match (grátis) ──
       try {
-        const description = enrichment?.cleanDescription || entry.rawDescription;
-        const historyMatch = await matchFromHistory(description, userId, entry.amount);
+        const historyMatch = await matchFromHistory(description, userId, plan.entry.amount);
 
-        const updates: Record<string, unknown> = {};
-        let wasClassified = false;
-
-        // Apply high-confidence beneficiary match
         if (historyMatch.beneficiaryId && historyMatch.beneficiaryId.confidence >= 0.7) {
-          updates.beneficiaryId = historyMatch.beneficiaryId.value;
-          wasClassified = true;
+          plan.updates.beneficiaryId = historyMatch.beneficiaryId.value;
+          plan.classified = true;
         }
 
-        // Apply high-confidence category match
         if (historyMatch.categoryId && historyMatch.categoryId.confidence >= 0.7) {
-          updates.categoryId = historyMatch.categoryId.value;
-          wasClassified = true;
+          plan.updates.categoryId = historyMatch.categoryId.value;
+          plan.classified = true;
         }
 
-        // Apply payment method if not already set and confidence is decent
         if (historyMatch.paymentMethod && historyMatch.paymentMethod.confidence >= 0.5) {
-          const currentMethod = cardId ? "credit" : detectPaymentMethod(entry.rawDescription);
+          const currentMethod = cardId ? "credit" : detectPaymentMethod(plan.entry.rawDescription);
           if (currentMethod === "other") {
-            updates.paymentMethod = historyMatch.paymentMethod.value;
+            plan.updates.paymentMethod = historyMatch.paymentMethod.value;
           }
         }
 
@@ -218,62 +152,160 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
           historyMatch.categoryId?.confidence ?? 0,
         );
         if (maxConfidence > 0) {
-          updates.confidence = maxConfidence;
+          plan.updates.confidence = maxConfidence;
         }
 
-        if (wasClassified) {
-          updates.status = "identified";
-          classifiedByRules++;
+        if (plan.classified) {
+          plan.updates.status = "identified";
+        }
+
+        if (historyMatch.tagIds && historyMatch.tagIds.confidence >= 0.7) {
+          plan.tagIds = historyMatch.tagIds.value;
+        }
+      } catch (err) {
+        // Classification failure should not block import
+        console.error("[import] Classification failed for tx", plan.transactionId, err);
+      }
+    }
+
+    // ── Fase "commit": tudo ou nada ──
+    //
+    // O callback precisa ser síncrono. Um `await` que escapasse para dentro
+    // sairia da transação sem o TypeScript reclamar, e a atomicidade se perderia
+    // em silêncio.
+    db.transaction((tx) => {
+      for (const plan of planned) {
+        const { entry, hash, entryId, transactionId, enrichment } = plan;
+
+        // Duplicate check inside the transaction, so it also sees the rows
+        // inserted by earlier iterations of this same import.
+        const duplicateConditions = [eq(statementEntries.hash, hash)];
+        if (cardId) {
+          duplicateConditions.push(eq(statementEntries.cardId, cardId));
         } else {
-          unclassifiedTxIds.push(transactionId);
+          duplicateConditions.push(eq(statementEntries.accountId, accountId));
         }
 
-        if (Object.keys(updates).length > 0) {
-          db.update(transactions)
-            .set(updates)
+        const existingEntry = tx
+          .select({ id: statementEntries.id })
+          .from(statementEntries)
+          .where(and(...duplicateConditions))
+          .get();
+
+        if (existingEntry) {
+          duplicatesSkipped++;
+          continue;
+        }
+
+        // Create statement entry (immutable bank data)
+        tx.insert(statementEntries).values({
+          id: entryId,
+          userId,
+          importId,
+          accountId,
+          cardId: cardId ?? null,
+          cardInvoiceId: cardInvoiceId ?? null,
+          entryDate: entry.entryDate,
+          amount: entry.amount,
+          rawDescription: entry.rawDescription,
+          balanceAfter: entry.balanceAfter ?? null,
+          rowNumber: entry.rowNumber,
+          rawData: JSON.stringify(entry.rawData),
+          hash,
+          status: "pending",
+          createdAt: now,
+        }).run();
+
+        // Auto-create transaction.
+        // The sign is the single source of truth for the type — it was normalised
+        // once in the parser-factory. Honouring enrichment.suggestedType here is
+        // what used to import the invoice payment line as income.
+        const baseType = entry.amount >= 0 ? ("income" as const) : ("expense" as const);
+
+        tx.insert(transactions).values({
+          id: transactionId,
+          userId,
+          accountId,
+          cardId: cardId ?? null,
+          cardInvoiceId: cardInvoiceId ?? null,
+          type: baseType,
+          amount: Math.abs(entry.amount),
+          date: invoiceDueDate || entry.entryDate,
+          competenceDate: invoiceDueDate ? entry.entryDate : null,
+          description: enrichment?.cleanDescription || entry.rawDescription,
+          paymentMethod: cardId ? "credit" : detectPaymentMethod(entry.rawDescription),
+          status: "unrecognized",
+          source: "import",
+          statementEntryId: entryId,
+          importId,
+          installmentCurrent: enrichment?.installmentCurrent ?? null,
+          installmentTotal: enrichment?.installmentTotal ?? null,
+          createdByUserId: userId,
+          createdAt: now,
+          updatedByUserId: userId,
+          updatedAt: now,
+        }).run();
+
+        // Link statement entry to transaction
+        tx.update(statementEntries)
+          .set({ status: "matched", transactionId })
+          .where(eq(statementEntries.id, entryId))
+          .run();
+
+        if (Object.keys(plan.updates).length > 0) {
+          tx.update(transactions)
+            .set(plan.updates)
             .where(eq(transactions.id, transactionId))
             .run();
         }
 
-        // Apply tags if matched
-        if (historyMatch.tagIds && historyMatch.tagIds.confidence >= 0.7) {
-          for (const tagId of historyMatch.tagIds.value) {
-            db.insert(transactionTags).values({
-              transactionId,
-              tagId,
-            }).run();
-          }
+        for (const tagId of plan.tagIds) {
+          tx.insert(transactionTags).values({ transactionId, tagId }).run();
         }
-      } catch (err) {
-        // Classification failure should not block import
-        console.error("[import] Classification failed for tx", transactionId, err);
-        unclassifiedTxIds.push(transactionId);
+
+        if (plan.classified) classifiedByRules++;
+        else unclassifiedTxIds.push(transactionId);
+
+        transactionsCreated++;
+        processedRows++;
+
+        // Accumulate financial totals
+        const absAmount = Math.abs(entry.amount);
+        if (entry.amount < 0) {
+          totalExpense += absAmount;
+        } else {
+          totalIncome += absAmount;
+        }
+        const entryDate = entry.entryDate;
+        if (!dateMin || entryDate < dateMin) dateMin = entryDate;
+        if (!dateMax || entryDate > dateMax) dateMax = entryDate;
       }
 
-      transactionsCreated++;
-      processedRows++;
-
-      // Accumulate financial totals
-      const absAmount = Math.abs(entry.amount);
-      if (entry.amount < 0) {
-        totalExpense += absAmount;
-      } else {
-        totalIncome += absAmount;
+      // Update card invoice total if applicable
+      if (cardInvoiceId) {
+        updateInvoiceTotal(cardInvoiceId, tx);
       }
-      const entryDate = entry.entryDate;
-      if (!dateMin || entryDate < dateMin) dateMin = entryDate;
-      if (!dateMax || entryDate > dateMax) dateMax = entryDate;
-    }
-
-    // Update card invoice total if applicable
-    if (cardInvoiceId) {
-      updateInvoiceTotal(cardInvoiceId);
-    }
+    });
 
     // ── Nível 2: AI batch (assíncrono, não bloqueia importação) ──
+    //
+    // Continua fire-and-forget de propósito: services/jobs/queue.ts já tem
+    // enqueue/dequeue com retry, mas nada consome a fila (dequeueJob não tem
+    // um único chamador), então enfileirar aqui faria a classificação nunca
+    // rodar. Enquanto o worker não existe, ao menos a falha deixa rastro no
+    // próprio import em vez de morrer num console.error.
     if (unclassifiedTxIds.length > 0) {
-      classifyBatch(unclassifiedTxIds, userId).catch((err) => {
+      classifyBatch(unclassifiedTxIds, userId).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
         console.error("[import] AI batch classification failed:", err);
+        try {
+          db.update(imports)
+            .set({ errorMessage: `Classificação por IA falhou: ${message}` })
+            .where(eq(imports.id, importId))
+            .run();
+        } catch (writeErr) {
+          console.error("[import] could not record AI failure:", writeErr);
+        }
       });
     }
 
@@ -400,11 +432,15 @@ function findOrCreateCardInvoice(
   return id;
 }
 
-function updateInvoiceTotal(cardInvoiceId: string): void {
+/**
+ * @param executor pass the transaction handle when called inside one, so the
+ * total is written in the same all-or-nothing unit as the entries it sums.
+ */
+function updateInvoiceTotal(cardInvoiceId: string, executor: DbExecutor = db): void {
   // Debits minus refunds. Summing ABS() of debits only used to both zero the
   // total (when purchases came out positive) and overstate it (by counting a
   // refund as one more purchase).
-  const result = db
+  const result = executor
     .select({
       total: sql<number>`COALESCE(SUM(-amount), 0)`,
     })
@@ -413,7 +449,7 @@ function updateInvoiceTotal(cardInvoiceId: string): void {
     .get();
 
   if (result) {
-    db.update(cardInvoices)
+    executor.update(cardInvoices)
       .set({ totalAmount: result.total, updatedAt: nowTimestamp() })
       .where(eq(cardInvoices.id, cardInvoiceId))
       .run();

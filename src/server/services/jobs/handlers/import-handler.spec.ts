@@ -133,6 +133,58 @@ describe("handleImportJob — Itaú invoice", () => {
     expect(orphan).toHaveLength(0);
   });
 
+  // A failure partway through must leave nothing behind. The trigger below
+  // aborts the third statement_entries insert, standing in for a disk error, a
+  // constraint violation or a crash — all of which used to leave the first rows
+  // committed, since every write ran in its own autocommit.
+  it("persists nothing when a write fails partway", async () => {
+    const before = {
+      entries: (rows("SELECT count(*) c FROM statement_entries")[0] as { c: number }).c,
+      transactions: (rows("SELECT count(*) c FROM transactions")[0] as { c: number }).c,
+    };
+
+    // Rows unique to this test, so none is skipped as a duplicate of an earlier
+    // import. The last one is the one the trigger refuses.
+    const content = [
+      "data,lançamento,valor",
+      "2026-09-10,COMPRA BOA UM,\"10,00\"",
+      "2026-09-11,COMPRA BOA DOIS,\"20,00\"",
+      "2026-09-12,LINHA QUE FALHA,\"30,00\"",
+    ].join("\n");
+
+    sqlite.exec(`
+      CREATE TRIGGER fail_midway BEFORE INSERT ON statement_entries
+      WHEN NEW.raw_description = 'LINHA QUE FALHA'
+      BEGIN SELECT RAISE(ABORT, 'falha simulada no meio do import'); END;
+    `);
+
+    newImport("imp_fail");
+    try {
+      await expect(
+        handleImportJob({
+          importId: "imp_fail",
+          content,
+          filename: "fatura.csv",
+          accountId: ACCOUNT,
+          cardId: CARD,
+          userId: USER,
+        })
+      ).rejects.toThrow();
+    } finally {
+      sqlite.exec("DROP TRIGGER fail_midway");
+    }
+
+    expect((rows("SELECT count(*) c FROM statement_entries")[0] as { c: number }).c).toBe(
+      before.entries
+    );
+    expect((rows("SELECT count(*) c FROM transactions")[0] as { c: number }).c).toBe(
+      before.transactions
+    );
+    expect(
+      (rows("SELECT status FROM imports WHERE id = 'imp_fail'")[0] as { status: string }).status
+    ).toBe("failed");
+  });
+
   it("treats a re-import of the same file as fully duplicate", async () => {
     const before = (rows("SELECT count(*) c FROM statement_entries")[0] as { c: number }).c;
 

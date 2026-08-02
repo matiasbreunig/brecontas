@@ -15,6 +15,25 @@ export const importsRouter = router({
       }).default({ limit: 20, offset: 0 }),
     )
     .query(async ({ ctx, input }) => {
+      // An import only stays in "processing" if the process died mid-run — the
+      // handler always leaves it completed or failed. Without this it would sit
+      // there spinning forever, since nothing else ever revisits the row.
+      const STALE_AFTER_SECONDS = 30 * 60;
+      ctx.db
+        .update(imports)
+        .set({
+          status: "failed",
+          errorMessage: "Importação interrompida (processo reiniciado)",
+        })
+        .where(
+          and(
+            eq(imports.userId, ctx.userId),
+            eq(imports.status, "processing"),
+            sql`${imports.createdAt} < unixepoch() - ${STALE_AFTER_SECONDS}`
+          )
+        )
+        .run();
+
       return ctx.db.query.imports.findMany({
         where: eq(imports.userId, ctx.userId),
         orderBy: [desc(imports.createdAt)],
