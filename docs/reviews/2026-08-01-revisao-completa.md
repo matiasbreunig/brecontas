@@ -1,226 +1,146 @@
-# Revisão completa do projeto — 2026-08-01
+# Revisão completa do projeto — 2026-08-01/02
 
-Revisão multi-agente do commit `dd5c326`: seis revisores independentes por dimensão
-(correção server-side, client-side, segurança, integridade de dados/dinheiro, parsers
-de importação, convenções do CLAUDE.md), com deduplicação (57 → 40 achados) e
-verificação adversarial dos 9 mais graves — um segundo agente instruído a refutar
-cada um lendo o código citado. **Resultado: 9 confirmados, 0 refutados.**
-`npx tsc --noEmit` passou limpo. Nenhuma correção foi aplicada nesta revisão.
+Duas revisões multi-agente independentes rodaram sobre o commit `dd5c326`, sem
+conhecimento uma da outra, e foram unificadas aqui junto com o registro do que
+já foi corrigido.
 
----
+- **Revisão A** — segurança, dinheiro/datas, importação, performance, arquitetura
+  e **infra**. 17 achados confirmados por verificação adversarial + 31 menores.
+  Foi a única que consultou o host de produção.
+- **Revisão B** — correção server-side e client-side, parsers e **convenções do
+  CLAUDE.md**. 9 verificados adversarialmente + 31 não verificados. Foi a única
+  que leu a camada de UI a fundo.
 
-## Confirmados por verificação adversarial
+Sobrepõem-se em ~20 achados — confirmação mútua forte. Os 12 achados exclusivos
+da revisão B foram verificados um a um contra o código: **todos confirmados**,
+três deles com mais ocorrências do que a revisão apontava.
 
-### 1. CRÍTICO — Fatura Itaú em CSV: dupla inversão de sinal transforma toda compra em receita
-
-`src/server/services/parsers/parser-factory.ts:385` + `src/server/services/parsers/csv-parser.ts:116`
-
-O template `itau_fatura` tem `amountIsNegativeForDebit: false`, então o csv-parser
-força `amount = -Math.abs(amount)` em toda linha — e o parser-factory inverte de
-novo, deixando tudo positivo. O import-handler (`isCredit = entry.amount >= 0`)
-classifica cada compra como `income`: a fatura inteira importa como renda, e
-`updateInvoiceTotal` (que soma só valores negativos) grava `totalAmount = 0`.
-Reproduzido de ponta a ponta com CSV de exemplo.
-
-**Correção:** eliminar uma das duas inversões (manter o sinal cru no csv-parser e
-deixar o parser-factory fazer a única inversão); teste de regressão: compras
-negativas, PAGAMENTO EFETUADO positivo.
-
-### 2. ALTO — Desfazer uma conciliação é no-op silencioso
-
-`src/hooks/use-undo-redo.tsx:80`
-
-Cmd+Z após "Conciliar" roteia toda mudança de status não-descartada para
-`transactions.restore`, que retorna cedo se o status atual não for `discarded`.
-O servidor não faz nada, mas o cliente mostra "Ação desfeita" e move a ação para o
-stack de redo (também no-op). O stack fica permanentemente dessincronizado do banco.
-
-**Correção:** só rotear para delete/restore em transições de/para `discarded`;
-demais transições vão por `transactions.update`.
-
-### 3. ALTO — Router statement-entries não filtra por usuário
-
-`src/server/trpc/routers/statement-entries.ts:19`
-
-`list`, `getById`, `skip` e `stats` não têm condição de `userId` (o comentário
-"Join with imports to filter by user" existe; o join não). Cada usuário vê e pode
-marcar como "skipped" entradas bancárias do outro.
-
-**Correção:** join com `imports` + `eq(imports.userId, ctx.userId)` em todos os
-procedures, incluindo `skip`.
-
-### 4. ALTO — deleteImport: limpeza de fatura órfã é código morto (findFirst sem await)
-
-`src/server/trpc/routers/imports.ts:457`
-
-Três `findFirst` sem `await` retornam thenables (sempre truthy), então o delete de
-`cardInvoices` nunca roda. Ao reimportar fatura corrigida, a fatura órfã (dueDate
-antigo) é reusada pelo cycle-matching, contaminando a data de caixa das novas
-transações. A cascata multi-tabela também não está em `db.transaction()`.
-
-**Correção:** `await` nas três consultas + envolver a cascata em transação.
-
-### 5. ALTO — Undo envia sentinela "" ao servidor: trava o stack e grava "" no lugar de NULL
-
-`src/hooks/use-auto-save.ts:117`
-
-Campos anuláveis alimentam o hook com `serverValue ?? ""` e o undo grava o valor
-cru em `oldValues`. Efeitos: (1) desfazer forma de pagamento envia
-`paymentMethod: ""` → falha no zod → "Erro ao desfazer", e como a ação só sai do
-stack em sucesso, o undo fica bloqueado para sempre; (2) `categoryId: ""` passa na
-validação e grava string vazia em vez de NULL.
-
-**Correção:** normalizar com `|| null` ao montar a ação de undo.
-
-### 6. ALTO — Guard savingRef descarta saves: segunda edição rápida perdida com toast "Salvo"
-
-`src/hooks/use-auto-save.ts:89`
-
-`if (savingRef.current) return;` descarta em vez de enfileirar. Com
-`debounceMs: 0` (categoria/beneficiário/tags): escolher B (save em voo) e logo C —
-C nunca é enviado e a UI reverte silenciosamente para B com "Salvo". O flush de
-unmount cai no mesmo guard, perdendo texto pendente ao fechar a linha.
-
-**Correção:** enfileirar o valor (`queuedValueRef`) e reexecutar no `finally`.
-
-### 7. MÉDIO — Cmd+Shift+Z (refazer) nunca dispara
-
-`src/hooks/use-undo-redo.tsx:224`
-
-Com Shift, `e.key` é `"Z"` maiúsculo e o guard `e.key !== "z"` sai antes do branch
-de redo. Caps Lock quebra até o Cmd+Z simples.
-
-**Correção:** `e.key.toLowerCase() !== "z"`.
-
-### 8. MÉDIO — createTransfer usa modelo antigo de par: saldo do destino diminui
-
-`src/server/trpc/routers/reconciliation.ts:326` *(endpoint sem chamadores na UI)*
-
-Cria duas pernas `type='transfer'` ligadas só por `transferPairId` (deprecated) sem
-`transferAccountId`. A fórmula de saldo subtrai toda linha transfer do `accountId`,
-então a perna de entrada é subtraída do destino.
-
-**Correção:** migrar para o modelo de linha única (`accountId` +
-`transferAccountId`) ou remover o endpoint.
-
-### 9. BAIXO — convertEntries sem idempotência nem verificação de dono
-
-`src/server/trpc/routers/imports.ts:241` *(endpoint sem chamadores na UI)*
-
-Busca a entrada só por id, sem checar dono nem `status === 'pending'` — reenvio
-duplicaria transações.
-
-**Correção:** guard de status + escopo por usuário, ou remover junto com
-`quickConvert`/`getEntries`.
+Uma imprecisão da revisão B fica registrada: o app **não** está exposto à
+internet. O hostname resolve para um IP de tailnet (CGNAT do Tailscale); a
+exposição real era à LAN, pela porta 3100 publicada em `0.0.0.0` — corrigida.
 
 ---
 
-## Não verificados — achados de revisor único (31)
+## Corrigido
 
-Vieram das mesmas revisões mas não passaram pela segunda checagem adversarial.
-Severidades são estimativa do revisor.
+Onze commits, de `63c4724` a `f193b42`. Cada um foi verificado no gwcasa antes
+do seguinte: `tsc` limpo, testes verdes, container `healthy` e HTTPS em `307`.
 
-### Altos
+### Infraestrutura
 
-- **Path traversal em /api/files** — `src/app/api/files/[...path]/route.ts:31`:
-  ownership check roda antes da normalização; `%2e%2e` permite um usuário
-  autenticado ler recibos do outro. Normalizar primeiro, depois checar prefixo e
-  conter o caminho resolvido em `uploadsRoot`.
-- **Senhas com SHA-256 sem salt** — `src/server/auth.ts:8`: app exposto na
-  internet; vazamento do .db entrega as senhas. Migrar para scrypt/bcrypt/argon2
-  com salt por usuário. Comparação também não é timing-safe.
-- **PDF de fatura data compras do início do mês um ano no passado** —
-  `src/server/services/parsers/pdf-parser.ts:184`: heurística
-  `month >= invoiceMonth` usa o mês do vencimento; compras entre fechamento e
-  vencimento no mesmo mês recebem ano-1. Usar a data de fechamento como referência.
-- **Select simples para categorias/beneficiários** —
-  `src/app/(app)/recorrentes/page.tsx:198` e
-  `src/app/(app)/configuracoes/page.tsx:874`: violam a convenção
-  CategoryCombobox/BeneficiaryCombobox.
+| Problema | Situação |
+|---|---|
+| **O app não gravava no banco desde 06/abr** — bind mount `root:root` contra container `uid 1001`; `transactions` zerada com o container de pé há 5 semanas | `chown` no volume e `adduser --ingroup nodejs` no Dockerfile, que criava o usuário fora do grupo usado pelo próprio `chown` da imagem |
+| `.env.production` (AUTH_SECRET + chaves de API) e uma cópia do banco dentro das camadas da imagem, por `COPY . .` sem `.dockerignore` | `.dockerignore` criado; `docker run` sem volume já não acha nenhum dos dois |
+| Porta 3100 publicada em `0.0.0.0`: qualquer aparelho da LAN chegava ao login em HTTP puro, contornando TLS e `secure_headers` do Caddy | Bind em `127.0.0.1` |
+| Sem backup do banco | `backup.sh` diário às 3h45 no padrão do postgres, com `VACUUM INTO` (nunca `cp` de WAL aberto), retenção e teste de restauração |
+| Sem healthcheck: um travamento ficava invisível | `healthcheck` via `node -e "fetch(...)"` — a imagem slim não tem curl nem wget |
+| Imagem de produção com 778 MB carregando toolchain de build | 302 MB: o runner deixou de herdar do estágio `base` |
+| 29 de 33 mutations falhavam em silêncio | `MutationCache` com `onError` global |
 
-### Médios
+### Dinheiro
 
-- **transactions.update sem invariante de transferência** —
-  `src/server/trpc/routers/transactions.ts:157`: mudar tipo para transfer via
-  auto-save cria linha sem `transferAccountId`; dinheiro some do saldo.
-- **Hash de dedupe descarta lançamentos idênticos legítimos** —
-  `src/server/services/jobs/handlers/import-handler.ts:107`: dois lançamentos
-  iguais no mesmo dia → o segundo é pulado como duplicata.
-- **Delete de categoria/beneficiário em uso estoura FK crua** —
-  `src/server/trpc/routers/categories.ts:80`, `beneficiaries.ts:74`: erro 500 sem
-  mensagem PT-BR. Soft-delete ou desanexar referências em transação.
-- **Campo pisca valor antigo entre save e refetch** — `src/hooks/use-auto-save.ts:70`.
-- **Inbox: inferência não reaplica ao reabrir o diálogo** —
-  `src/app/(app)/inbox/page.tsx:227`: cache retorna a mesma referência e o efeito
-  não roda; formulário fica vazio.
-- **Seleção em massa sobrevive à troca de mês** —
-  `src/app/(app)/transacoes/page.tsx:135`: "Conciliar" atinge transações
-  invisíveis; select-all compara só por tamanho.
-- **payInvoice sem escopo de usuário** —
-  `src/server/trpc/routers/reconciliation.ts:401`: marca fatura de outro usuário
-  como paga.
-- **Servidor MCP sem autenticação** — `src/mcp/server.ts:41`: personifica o
-  primeiro usuário da tabela `users`; query morta em accounts sugere lógica
-  inacabada. Exigir identidade explícita (env `BRECONTAS_MCP_USER_ID`).
-- **Seed com senha 'admin123' para os dois usuários** — `src/server/db/seed.ts:38`:
-  confirmar rotação em produção; sem rate limiting no login.
-- **XLS/PDF forçam tudo negativo: estornos viram despesa** —
-  `src/server/services/parsers/xls-parser.ts:62`, `pdf-parser.ts:458`: preservar o
-  sinal de ponta a ponta.
-- **OFX/CSV latin-1 decodificados como UTF-8** —
-  `src/components/transactions/import-wizard.tsx:142`: acentos viram U+FFFD em
-  dados imutáveis e mudam o hash de dedupe. Detectar charset e usar
-  `TextDecoder('windows-1252')`.
-- **OFX de cartão conforme a spec detectado como extrato bancário** —
-  `src/server/services/parsers/parser-factory.ts:96`: CCACCTFROM não tem ACCTTYPE.
-  Detectar por `<CCACCTFROM>`/`<CCSTMTRS>`/`<CREDITCARDMSGSRSV1>`.
-- **Linha de rodapé no CSV derruba o import inteiro** —
-  `src/server/services/parsers/csv-parser.ts:35`: `m.padStart` sem validar o split
-  lança TypeError; anos de 2 dígitos viram "25-03-05". Validar e pular a linha.
-- **Detecção de banco por substring** —
-  `src/server/services/parsers/parser-factory.ts:81`: "INTERNET"/"INTERNACIONAL"
-  seleciona o template do Inter e o import termina "com sucesso" com 0 linhas.
-  Restringir ao cabeçalho, word boundaries, fallback quando 0 linhas.
-- **Selects pré-preenchidos mostram valores crus** ("expense", "\_\_none\_\_",
-  "checking") — `configuracoes/page.tsx:125+`, `recorrentes/page.tsx:151`,
-  `contas/page.tsx:98`: bug do Portal do base-ui documentado no CLAUDE.md; resolver
-  o rótulo manualmente no SelectTrigger.
+A causa raiz era a convenção de sinal sem dono: quatro implementações de parse de
+valor e **quatro caudas quase idênticas** no `parseFile`, cada uma tratando o
+sinal à sua maneira — foi assim que a inversão do CSV acabou aplicada duas vezes.
+Agora os parsers são fiéis ao arquivo e um `finalizeEntries` aplica a convenção
+uma única vez, descarta as linhas puladas e só então calcula o hash.
 
-### Baixos
+Isso corrigiu de uma vez: compras da fatura entrando como receita; `Math.abs` no
+XLS e no PDF transformando estorno em despesa; "PAGAMENTO EFETUADO" virando
+receita do valor total da fatura no caminho CSV; OFX com vírgula decimal
+truncando `-49,90` em `-49`; e o total da fatura, que ficava zerado e ainda era
+inflado por estornos (`SUM(-amount)` no lugar de `SUM(ABS)` só dos débitos).
 
-- **reconcile/bulk ressuscitam descartadas** sem limpar
-  `discardedAt`/`discardReason` — `reconciliation.ts:267`; bulkReconcile reporta
-  count de entrada, não de linhas atualizadas.
-- **ai.acceptSuggestion/rejectSuggestion sem escopo nem validação de vínculo** —
-  `src/server/trpc/routers/ai.ts:72` e `:96`: sugestão de qualquer transação pode
-  ser aplicada a outra; feedback de terceiros pode ser adulterado.
-- **Par descartar/restaurar não é inverso fiel** — `use-undo-redo.tsx:84`: motivo
-  original perdido (vira "error"); status anterior não é restaurado ("draft" volta
-  como "unrecognized").
-- **Estornos inconsistentes nos relatórios** — `src/server/trpc/routers/reports.ts:75`:
-  dailySpending conta refund como receita; monthComparison/stats não; byCategory
-  ignora.
-- **"hoje"/"ontem" resolvidos em UTC** —
-  `src/server/services/inference/text-parser.ts:113`: após ~21h (BRT) o dia
-  inferido é amanhã. Usar `toISODate()` de `src/lib/date.ts`.
-- **classifyBatch sobrescreve descrição em qualquer confiança** —
-  `src/server/services/ai/classifier.ts:159`: aliases aprendem prosa da IA que
-  nunca casa com descrições cruas. Limiar de confiança + aprender do
-  `rawDescription`.
-- **parseOfxAmount trunca decimais com vírgula** —
-  `src/server/services/parsers/ofx-parser.ts:44`: `parseFloat('-49,90')` → -49.
-  Reusar a detecção de separador BR/US do csv-parser.
-- **Texto de leitor de tela em inglês** — `src/components/ui/dialog.tsx:75`,
-  `sheet.tsx:75`, `sidebar.tsx:275`: "Close"/"Toggle Sidebar" → "Fechar"/"Alternar
-  barra lateral".
+### Datas
+
+Eram 19 usos de `toISOString().split("T")[0]`, no servidor e no cliente — todos
+bugs, porque `toISOString` é UTC também no navegador: um lançamento depois das
+21h caía no dia seguinte, e na virada do mês, no mês seguinte.
+
+Corrigido nas duas metades no mesmo commit, porque separadas o bug só mudaria de
+lugar: `TZ=America/Sao_Paulo` no compose, e `parseISODate` no lugar de
+`new Date(isoString)` — que é meia-noite UTC, ou seja, o dia anterior às 21h em
+Brasília.
+
+No PDF, o ano das compras passou a ser ancorado na data de **fechamento**, não na
+de vencimento: o cartão "Azul" fecha dia 2 e vence dia 9 do mesmo mês, então uma
+compra do dia 1º era datada um ano no passado. E sem fechamento nem vencimento
+legíveis o parser falha, em vez de assumir a data de hoje.
+
+### Integridade e segurança
+
+- **Import atômico.** Não havia um único `db.transaction()` no projeto. Como o
+  `better-sqlite3` é síncrono e não aceita `await` dentro da transação, o laço
+  foi reestruturado em `parse → plan → commit`: a classificação roda antes, sem
+  escrever, e a gravação inteira vai numa transação só.
+- **`deleteImport`**: três `findFirst` sem `await` retornavam promises sempre
+  truthy, então o delete da fatura órfã era código morto e um reimport a
+  reaproveitava com o `dueDate` antigo.
+- **Path traversal em `/api/files`**: a checagem de dono rodava sobre o caminho
+  cru, antes do `normalize`. Um usuário lia os recibos do outro.
+- **Escopo por usuário**: `statement_entries` não tinha coluna `user_id` — daí o
+  comentário "join with imports to filter by user" e nenhum join. Com a coluna, o
+  router ficou igual aos outros doze. Também escopados `payInvoice` e
+  `ai.acceptSuggestion`/`rejectSuggestion`.
+- **Senhas**: SHA-256 sem sal, com o literal `admin123` publicado no seed e ainda
+  válido nas duas contas de produção. Agora scrypt com sal e `timingSafeEqual`,
+  num módulo único compartilhado pelo auth e pelo seed; senhas trocadas.
+- **IA**: só aplica com confiança ≥ 0,7, com guarda otimista por `updatedAt`, e
+  nunca sobrescreve a descrição de transação importada — era assim que o
+  auto-aprendizado passava a aprender prosa do modelo.
+
+### Auto-save e undo
+
+Os três defeitos do `useAutoSave` eram uma máquina de estados só: o guard de
+reentrada **descartava** o save concorrente (a segunda edição rápida sumia
+enquanto a UI dizia "Salvo"); a ação de undo guardava o valor de UI cru, e em
+`paymentMethod` o zod recusa `""` — como a ação só sai da pilha em caso de
+sucesso, o undo travava até recarregar a página; e o efeito de sync adotava o
+valor antigo do servidor antes do refetch chegar, fazendo o campo piscar.
+
+No undo/redo: `status_change` só vai para `delete`/`restore` em transições de/para
+descartado — antes, desfazer uma conciliação caía em `restore`, que faz
+early-return, e a UI anunciava "Ação desfeita" sem nada ter mudado. E
+`e.key.toLowerCase()`, porque com Shift o `e.key` é `"Z"` maiúsculo e o
+Cmd+Shift+Z nunca chegava ao branch de refazer.
+
+### Convenções do CLAUDE.md
+
+Dez Selects pré-preenchidos abriam mostrando o valor interno (`"expense"`,
+`"__none__"`, `"checking"`) por causa do bug do Portal do base-ui, que o próprio
+CLAUDE.md documenta. Resolvidos por um `OptionSelect` compartilhado. Mais: seis
+strings de leitor de tela traduzidas, mensagem em português ao tentar apagar
+categoria ou favorecido em uso, e o inbox voltando a preencher o formulário ao
+reabrir o mesmo item.
+
+### Rede de testes
+
+Não havia framework de teste. Foram criados 31 testes (vitest), escritos **antes**
+das correções de dinheiro e falhando de propósito, incluindo integração contra
+SQLite temporário e um teste de atomicidade que injeta falha no meio do import
+via trigger do SQLite.
 
 ---
 
-## Ordem de ataque sugerida
+## Aberto
 
-1. Fatura Itaú CSV (crítico — corrompe dados a cada import)
-2. Trio undo/auto-save (`use-undo-redo.tsx:80` + `use-auto-save.ts:117` + `:89`)
-3. `deleteImport` await + transação
-4. Escopo de usuário: statement-entries, payInvoice, /api/files, ai.ts
-5. Senhas (scrypt + verificação do seed em produção)
-6. Parsers: sinais XLS/PDF, encoding, detecção OFX de cartão, robustez do CSV
+- **N+1 do `matchFromHistory`**: ~7 queries por linha importada, três delas
+  varreduras completas. Inofensivo com o histórico vazio; o pré-carregamento de
+  contexto por import resolve.
+- **Fila de jobs sem consumidor**: `services/jobs/queue.ts` tem enqueue, retry e
+  claim atômico, e `dequeueJob` não tem um único chamador. Enquanto não houver
+  worker, `classifyBatch` segue fire-and-forget — mas agora a falha deixa rastro
+  no `errorMessage` do import.
+- **Semântica de estorno nos relatórios**: `dailySpending` conta `refund` como
+  receita, `monthComparison` não, e `byCategory` nem aceita no enum. Decidir a
+  regra e escrever no CLAUDE.md antes de implementar.
+- **Endpoints sem chamador na UI** — `createTransfer` (debita as duas contas por
+  usar o modelo antigo de par), `convertEntries` e `quickConvert`. Apagar é
+  melhor que consertar.
+- **Servidor MCP sem autenticação**: personifica o primeiro usuário da tabela.
+  Transporte stdio, alcance local — só importa se voltar a ser usado.
+- **Paginação além de 200 e memoização das linhas**: otimização prematura num
+  banco vazio; refazer com volume real.
+- **Saldos iniciais das contas estão zerados** — conferir contra o extrato antes
+  do primeiro import de verdade.
