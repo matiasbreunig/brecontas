@@ -178,10 +178,16 @@ function parseDateDDMM(
       year = firstYear - 1;
     }
   } else {
-    // Simple heuristic: month >= invoiceMonth means previous year
-    // (invoice closing is before the due date month)
+    // A purchase belongs to the cycle that ends at the closing date, so the
+    // closing month is the reference — not the due month.
+    //
+    // The old rule was `month >= invoiceMonth → previous year`, anchored on the
+    // due date. For a card that closes on the 2nd and falls due on the 9th of
+    // the *same* month (the "Azul" card here does), a purchase on the 1st has
+    // month == invoiceMonth and was dated a whole year in the past, vanishing
+    // from every report.
     year = invoiceYear;
-    if (month >= invoiceMonth) {
+    if (month > invoiceMonth) {
       year = invoiceYear - 1;
     }
   }
@@ -491,15 +497,20 @@ export async function parsePdf(buffer: Buffer): Promise<PdfParseResult> {
 
   const metadata = extractMetadata(page1Items);
 
-  // Determine invoice year and month from metadata
-  let invoiceYear = new Date().getFullYear();
-  let invoiceMonth = new Date().getMonth() + 1;
-
-  if (metadata.dueDate) {
-    const [y, m] = metadata.dueDate.split("-").map(Number);
-    invoiceYear = y;
-    invoiceMonth = m;
+  // The billing cycle ends at the closing date, so that is the reference for
+  // dating purchases. Fall back to the due date when the invoice does not print
+  // a closing date.
+  //
+  // There is deliberately no fall back to "today": doing that used to shift a
+  // whole old invoice by however many years separated it from the import date,
+  // silently.
+  const cycleAnchor = metadata.closingDate || metadata.dueDate;
+  if (!cycleAnchor) {
+    throw new Error(
+      "Não foi possível ler a data de fechamento nem a de vencimento da fatura — sem elas as compras seriam datadas no ano errado."
+    );
   }
+  const [invoiceYear, invoiceMonth] = cycleAnchor.split("-").map(Number);
 
   // Extract transactions from all pages (skip page 1 which is header)
   const allEntries: ParsedEntry[] = [];

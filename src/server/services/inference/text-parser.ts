@@ -2,6 +2,7 @@
  * Stage 1: Pure regex-based text parser for Brazilian Portuguese financial text.
  * Zero dependencies, runs in <1ms.
  */
+import { toISODate } from "@/lib/date";
 
 export interface ParsedField<T> {
   value: T;
@@ -110,7 +111,7 @@ function parseDate(text: string): ParsedField<string> | undefined {
     if (norm.includes(word)) {
       const d = new Date(today);
       d.setDate(d.getDate() + offset);
-      return { value: d.toISOString().split("T")[0], confidence: 0.9, source: "parsed" };
+      return { value: toISODate(d), confidence: 0.9, source: "parsed" };
     }
   }
 
@@ -126,7 +127,7 @@ function parseDate(text: string): ParsedField<string> | undefined {
       let diff = currentDay - dayIndex;
       if (diff <= 0) diff += 7;
       d.setDate(d.getDate() - diff);
-      return { value: d.toISOString().split("T")[0], confidence: 0.7, source: "parsed" };
+      return { value: toISODate(d), confidence: 0.7, source: "parsed" };
     }
   }
 

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
-import { formatDateBR } from "@/lib/date";
+import { formatDateBR, todayISO } from "@/lib/date";
 import { formatBRL } from "@/lib/money";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -112,7 +112,7 @@ export default function InboxPage() {
   const [convertForm, setConvertForm] = useState({
     type: "expense" as string,
     amount: "",
-    date: new Date().toISOString().split("T")[0],
+    date: todayISO(),
     description: "",
     accountId: "",
     categoryId: "",
@@ -360,7 +360,7 @@ export default function InboxPage() {
     setConvertForm({
       type: "expense",
       amount: "",
-      date: new Date().toISOString().split("T")[0],
+      date: todayISO(),
       description: rawContent.slice(0, 200),
       accountId: accounts?.[0]?.id || "",
       categoryId: "",

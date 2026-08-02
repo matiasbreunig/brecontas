@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatBRL } from "@/lib/money";
-import { formatDateBR } from "@/lib/date";
+import { formatDateBR, todayISO } from "@/lib/date";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -178,7 +178,7 @@ export default function RecorrentesPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Início</Label>
-                    <Input name="startDate" type="date" defaultValue={new Date().toISOString().split("T")[0]} required />
+                    <Input name="startDate" type="date" defaultValue={todayISO()} required />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">

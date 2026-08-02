@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { todayISO, toISODate, addDaysISO } from "@/lib/date";
 import {
   CommandDialog,
   Command,
@@ -63,17 +64,16 @@ interface SmartSuggestion {
 
 const DATE_KEYWORDS: Record<string, () => { from: string; to: string; label: string }> = {
   hoje: () => {
-    const d = new Date().toISOString().split("T")[0];
+    const d = todayISO();
     return { from: d, to: d, label: `Hoje (${formatDateBR(d)})` };
   },
   ontem: () => {
-    const d = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+    const d = addDaysISO(todayISO(), -1);
     return { from: d, to: d, label: `Ontem (${formatDateBR(d)})` };
   },
   semana: () => {
-    const now = new Date();
-    const from = new Date(now.getTime() - 7 * 86400000).toISOString().split("T")[0];
-    const to = now.toISOString().split("T")[0];
+    const to = todayISO();
+    const from = addDaysISO(to, -7);
     return { from, to, label: "Últimos 7 dias" };
   },
   "semana passada": () => {
@@ -81,13 +81,13 @@ const DATE_KEYWORDS: Record<string, () => { from: string; to: string; label: str
     const dayOfWeek = now.getDay();
     const lastMonday = new Date(now.getTime() - (dayOfWeek + 6) * 86400000);
     const lastSunday = new Date(lastMonday.getTime() + 6 * 86400000);
-    return { from: lastMonday.toISOString().split("T")[0], to: lastSunday.toISOString().split("T")[0], label: "Semana passada" };
+    return { from: toISODate(lastMonday), to: toISODate(lastSunday), label: "Semana passada" };
   },
   "mês passado": () => {
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const to = new Date(now.getFullYear(), now.getMonth(), 0);
-    return { from: from.toISOString().split("T")[0], to: to.toISOString().split("T")[0], label: "Mês passado" };
+    return { from: toISODate(from), to: toISODate(to), label: "Mês passado" };
   },
   "mes passado": () => {
     // Alias without accent
@@ -140,9 +140,8 @@ function parseSmartSuggestions(q: string): SmartSuggestion[] {
   if (daysMatch) {
     const n = parseInt(daysMatch[1]);
     if (n > 0 && n <= 365) {
-      const now = new Date();
-      const from = new Date(now.getTime() - n * 86400000).toISOString().split("T")[0];
-      const to = now.toISOString().split("T")[0];
+      const to = todayISO();
+      const from = addDaysISO(to, -n);
       results.push({
         key: "smart:date-nd",
         icon: <Calendar className="h-4 w-4 text-teal-600 shrink-0" />,
@@ -160,8 +159,8 @@ function parseSmartSuggestions(q: string): SmartSuggestion[] {
     let year = now.getFullYear();
     // If the month is in the future, use previous year
     if (monthIdx > now.getMonth()) year--;
-    const from = new Date(year, monthIdx, 1).toISOString().split("T")[0];
-    const to = new Date(year, monthIdx + 1, 0).toISOString().split("T")[0];
+    const from = toISODate(new Date(year, monthIdx, 1));
+    const to = toISODate(new Date(year, monthIdx + 1, 0));
     const monthName = new Date(year, monthIdx, 1).toLocaleDateString("pt-BR", { month: "long" });
     results.push({
       key: "smart:date-month",

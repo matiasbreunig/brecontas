@@ -3,7 +3,7 @@ import { router, protectedProcedure } from "../init";
 import { recurringTemplates, transactions } from "@/server/db/schema";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import { generateId } from "@/lib/id";
-import { nowTimestamp } from "@/lib/date";
+import { nowTimestamp, toISODate, parseISODate } from "@/lib/date";
 
 export const recurringRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -134,7 +134,7 @@ export const recurringRouter = router({
         const dates = generateDates(template, now, endDate);
 
         for (const date of dates) {
-          const dateStr = date.toISOString().split("T")[0];
+          const dateStr = toISODate(date);
 
           // Check if projection already exists
           const existing = await ctx.db.query.transactions.findFirst({
@@ -179,7 +179,7 @@ export const recurringRouter = router({
         await ctx.db
           .update(recurringTemplates)
           .set({
-            lastGeneratedDate: endDate.toISOString().split("T")[0],
+            lastGeneratedDate: toISODate(endDate),
             updatedAt: timestamp,
           })
           .where(eq(recurringTemplates.id, template.id));
@@ -242,8 +242,8 @@ function generateDates(
   until: Date
 ): Date[] {
   const dates: Date[] = [];
-  const start = new Date(template.startDate);
-  const end = template.endDate ? new Date(template.endDate) : until;
+  const start = parseISODate(template.startDate);
+  const end = template.endDate ? parseISODate(template.endDate) : until;
   const effectiveEnd = end < until ? end : until;
 
   let current = new Date(start);

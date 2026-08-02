@@ -33,6 +33,7 @@ import { TagMultiSelect, getTagStyle } from "@/components/tag-multi-select";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { todayISO } from "@/lib/date";
 import {
   Plus,
   Upload,
@@ -1573,7 +1574,7 @@ function NewTransactionDialog({
               <Input
                 name="date"
                 type="date"
-                defaultValue={new Date().toISOString().split("T")[0]}
+                defaultValue={todayISO()}
                 required
                 className="min-h-[44px]"
               />

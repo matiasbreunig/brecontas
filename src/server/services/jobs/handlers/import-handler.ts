@@ -2,7 +2,7 @@ import { db } from "@/server/db";
 import { imports, statementEntries, cardInvoices, cards, transactions, transactionTags } from "@/server/db/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { generateId } from "@/lib/id";
-import { nowTimestamp } from "@/lib/date";
+import { nowTimestamp, todayISO } from "@/lib/date";
 import { parseFile, type EntryEnrichment } from "@/server/services/parsers/parser-factory";
 import { generateEntryHash } from "@/server/services/parsers/csv-parser";
 import { matchFromHistory } from "@/server/services/inference/history-matcher";
@@ -371,7 +371,7 @@ function findOrCreateCardInvoice(
 ): string {
   if (!dateRange) {
     const id = generateId();
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayISO();
     db.insert(cardInvoices).values({
       id,
       cardId,

@@ -7,5 +7,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.spec.ts", "tests/**/*.spec.ts"],
+    // Same zone the container runs in, so date tests mean the same thing here
+    // and in production.
+    env: { TZ: "America/Sao_Paulo" },
   },
 });
