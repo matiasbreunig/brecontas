@@ -73,19 +73,42 @@ export function UndoRedoProvider({ children }: { children: ReactNode }) {
    * Handles special cases like status_change (discard → restore, restore → discard).
    */
   const executeMutation = useCallback(
-    async (action: UndoableAction, values: Record<string, unknown>) => {
+    async (
+      action: UndoableAction,
+      values: Record<string, unknown>,
+      /** The side of the action we are leaving — the row's state right now. */
+      currentValues?: Record<string, unknown>,
+    ) => {
       const { entityType, entityId } = action;
 
-      // Special case: status_change uses discard/restore endpoints
+      // status_change: only transitions in and out of "discarded" belong to the
+      // discard/restore endpoints. Everything else is a plain status update.
+      //
+      // Routing *every* non-discarded target through `restore` is why undoing a
+      // reconcile did nothing: `restore` early-returns when the transaction is
+      // not discarded, so the server was untouched while the client popped the
+      // action off the stack and announced "Ação desfeita".
       if (entityType === "transactions" && action.type === "status_change") {
         if (values.status === "discarded") {
           await deleteTransaction.mutateAsync({
             id: entityId,
             reason: (values.discardReason as "duplicate" | "error" | "irrelevant" | "merged") ?? "error",
           });
-        } else {
-          // Restoring from discarded, or reverting a reconcile — use restore or update
+        } else if (currentValues?.status === "discarded") {
+          // Coming back from the bin: restore clears discardedAt/discardReason,
+          // then put the original status back if it wasn't the default.
           await restoreTransaction.mutateAsync({ id: entityId });
+          if (values.status && values.status !== "unrecognized") {
+            await updateTransaction.mutateAsync({
+              id: entityId,
+              status: values.status,
+            } as Parameters<typeof updateTransaction.mutateAsync>[0]);
+          }
+        } else {
+          await updateTransaction.mutateAsync({
+            id: entityId,
+            ...values,
+          } as Parameters<typeof updateTransaction.mutateAsync>[0]);
         }
         return;
       }
@@ -152,7 +175,7 @@ export function UndoRedoProvider({ children }: { children: ReactNode }) {
     setIsProcessing(true);
 
     try {
-      await executeMutation(action, action.oldValues);
+      await executeMutation(action, action.oldValues, action.newValues);
       invalidateEntity(action.entityType);
 
       setPast((prev) => prev.slice(0, -1));
@@ -184,7 +207,7 @@ export function UndoRedoProvider({ children }: { children: ReactNode }) {
     setIsProcessing(true);
 
     try {
-      await executeMutation(action, action.newValues);
+      await executeMutation(action, action.newValues, action.oldValues);
       invalidateEntity(action.entityType);
 
       setFuture((prev) => prev.slice(0, -1));
@@ -221,7 +244,10 @@ export function UndoRedoProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const isMod = e.metaKey || e.ctrlKey;
-      if (!isMod || e.key !== "z") return;
+      // With Shift held, e.key is the uppercase "Z" — comparing against the
+      // lowercase letter meant Cmd+Shift+Z never reached the redo branch below,
+      // and Caps Lock broke plain Cmd+Z too.
+      if (!isMod || e.key.toLowerCase() !== "z") return;
 
       // Don't intercept when a text input is focused (browser handles native undo)
       const el = document.activeElement;

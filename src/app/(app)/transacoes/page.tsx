@@ -142,6 +142,21 @@ export default function TransacoesPage() {
   const { month, dateFrom, dateTo, prevMonth, nextMonth, isCurrentMonth, goToToday } = useMonth();
   const monthLabel = format(month, "MMMM yyyy", { locale: ptBR });
 
+  // Changing month must clear the selection: it was kept across the change, so
+  // the bulk "Conciliar" reached transactions that were no longer on screen.
+  const goToPrevMonth = useCallback(() => {
+    setSelectedIds(new Set());
+    prevMonth();
+  }, [prevMonth]);
+  const goToNextMonth = useCallback(() => {
+    setSelectedIds(new Set());
+    nextMonth();
+  }, [nextMonth]);
+  const goToCurrentMonth = useCallback(() => {
+    setSelectedIds(new Set());
+    goToToday();
+  }, [goToToday]);
+
   // Queries
   const utils = trpc.useUtils();
 
@@ -435,17 +450,17 @@ export default function TransacoesPage() {
       {/* MONTH NAVIGATION                                                 */}
       {/* ================================================================ */}
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={prevMonth} className="h-8 w-8">
+        <Button variant="ghost" size="icon" onClick={goToPrevMonth} className="h-8 w-8">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="text-sm font-medium capitalize min-w-[140px] text-center">
           {monthLabel}
         </span>
-        <Button variant="ghost" size="icon" onClick={nextMonth} className="h-8 w-8">
+        <Button variant="ghost" size="icon" onClick={goToNextMonth} className="h-8 w-8">
           <ChevronRight className="h-4 w-4" />
         </Button>
         {!isCurrentMonth && (
-          <Button variant="ghost" size="sm" onClick={goToToday} className="text-xs h-7">
+          <Button variant="ghost" size="sm" onClick={goToCurrentMonth} className="text-xs h-7">
             Hoje
           </Button>
         )}
@@ -1108,6 +1123,7 @@ function TransactionEditPanel({
     field: "categoryId",
     serverValue: tx.categoryId ?? "",
     save: saveTxField("categoryId"),
+    toServer: (v) => v || null,
     debounceMs: 0,
     description: "Categoria alterada",
     extraValues: (val) =>
@@ -1125,6 +1141,7 @@ function TransactionEditPanel({
     field: "beneficiaryId",
     serverValue: tx.beneficiaryId ?? "",
     save: saveTxField("beneficiaryId"),
+    toServer: (v) => v || null,
     debounceMs: 0,
     description: "Favorecido alterado",
     extraValues: (val) =>
@@ -1142,6 +1159,7 @@ function TransactionEditPanel({
     field: "paymentMethod",
     serverValue: tx.paymentMethod ?? "",
     save: saveTxField("paymentMethod"),
+    toServer: (v) => v || null,
     debounceMs: 0,
     description: "Meio de pagamento alterado",
   });
@@ -1152,6 +1170,7 @@ function TransactionEditPanel({
     field: "accountId",
     serverValue: tx.accountId ?? "",
     save: saveTxField("accountId"),
+    toServer: (v) => v || null,
     debounceMs: 0,
     description: "Conta alterada",
   });
@@ -1162,6 +1181,7 @@ function TransactionEditPanel({
     field: "transferAccountId",
     serverValue: tx.transferAccountId ?? "",
     save: saveTxField("transferAccountId"),
+    toServer: (v) => v || null,
     debounceMs: 0,
     description: "Conta destino alterada",
   });
@@ -1174,6 +1194,7 @@ function TransactionEditPanel({
     field: "description",
     serverValue: tx.description ?? "",
     save: saveTxField("description"),
+    toServer: (v) => v || null,
     debounceMs: 400,
     description: "Descrição alterada",
   });
@@ -1184,6 +1205,7 @@ function TransactionEditPanel({
     field: "notes",
     serverValue: tx.notes ?? "",
     save: saveTxField("notes"),
+    toServer: (v) => v || null,
     debounceMs: 400,
     description: "Observações alteradas",
   });
