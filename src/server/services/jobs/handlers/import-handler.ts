@@ -6,7 +6,7 @@ import { nowTimestamp, todayISO } from "@/lib/date";
 import { parseFile, type EntryEnrichment } from "@/server/services/parsers/parser-factory";
 import { generateEntryHash } from "@/server/services/parsers/csv-parser";
 import { matchFromHistory, createMatchContext } from "@/server/services/inference/history-matcher";
-import { classifyBatch } from "@/server/services/ai/classifier";
+import { enqueueJob } from "@/server/services/jobs/queue";
 
 /** The db handle or a transaction handle — same query surface. */
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -303,24 +303,10 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
 
     // ── Nível 2: AI batch (assíncrono, não bloqueia importação) ──
     //
-    // Continua fire-and-forget de propósito: services/jobs/queue.ts já tem
-    // enqueue/dequeue com retry, mas nada consome a fila (dequeueJob não tem
-    // um único chamador), então enfileirar aqui faria a classificação nunca
-    // rodar. Enquanto o worker não existe, ao menos a falha deixa rastro no
-    // próprio import em vez de morrer num console.error.
+    // Enfileirado, não disparado e esquecido: a fila dá retry com backoff e
+    // registra o erro, em vez de a falha morrer num console.error.
     if (unclassifiedTxIds.length > 0) {
-      classifyBatch(unclassifiedTxIds, userId).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error("[import] AI batch classification failed:", err);
-        try {
-          db.update(imports)
-            .set({ errorMessage: `Classificação por IA falhou: ${message}` })
-            .where(eq(imports.id, importId))
-            .run();
-        } catch (writeErr) {
-          console.error("[import] could not record AI failure:", writeErr);
-        }
-      });
+      await enqueueJob("ai_classify_batch", { transactionIds: unclassifiedTxIds, userId }, userId);
     }
 
     // Update import as completed
