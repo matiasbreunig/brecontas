@@ -123,18 +123,21 @@ via trigger do SQLite.
 
 ---
 
+## Fila de jobs
+
+`queue.ts` tinha enqueue, claim atômico e retry desde sempre — e nenhum
+consumidor. O worker foi construído (`worker.ts` + `instrumentation.ts`), e ao
+escrevê-lo apareceram dois defeitos que nenhuma das revisões tinha visto, porque
+o código nunca havia executado: o retry devolvia o job à fila sem adiar o
+agendamento (queimando as três tentativas em segundos) e nada recuperava jobs
+presos em `running` após um restart. Ambos corrigidos, com testes.
+
 ## Aberto
 
-Tudo o que as duas revisões apontaram foi aplicado. Restam decisões de operação,
-não defeitos:
+Nada de código. Restam decisões e dados que dependem de você:
 
-- **Fila de jobs sem worker**: `services/jobs/queue.ts` tem enqueue, retry e
-  claim atômico, e `dequeueJob` continua sem chamador. `classifyBatch` segue
-  fire-and-forget — enfileirar sem um worker faria a classificação nunca rodar.
-  A falha, porém, já deixa rastro no `errorMessage` do import. Construir o
-  worker é uma funcionalidade nova, não uma correção.
+- **Tornar o repositório privado** — depende de acesso ao GitHub.
+- **Rotacionar o token `gho_`** que estava embutido no remote do infra-casa. O
+  remote passou a usar SSH, mas o token já esteve em texto claro no disco.
 - **Saldos iniciais das contas estão zerados** — conferir contra o extrato antes
   do primeiro import de verdade.
-- **Tornar o repositório privado** — depende de acesso ao GitHub.
-- **Rotacionar o token `gho_` que estava embutido no remote do infra-casa** — o
-  remote passou a usar SSH, mas o token já esteve em texto claro no disco.
