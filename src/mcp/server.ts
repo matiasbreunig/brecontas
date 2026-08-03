@@ -10,8 +10,7 @@ import {
   inboxItems,
   categories,
   beneficiaries,
-  statementEntries,
-} from "@/server/db/schema";
+  statementEntries, users as usersTable } from "@/server/db/schema";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
 import { generateId } from "@/lib/id";
 import { nowTimestamp } from "@/lib/date";
@@ -37,13 +36,44 @@ function checkIdempotency(requestId?: string): boolean {
   return false;
 }
 
-// Get first user (personal app)
-function getDefaultUserId(): string {
-  const user = db.select().from(accounts).limit(1).get();
-  // Fallback: get any user from the users table
-  const { users } = require("@/server/db/schema");
-  const u = db.select().from(users).limit(1).get();
-  return u?.id || "unknown";
+/**
+ * Which user this server acts as.
+ *
+ * It used to be "whichever row comes back first from `users`", which meant
+ * every write landed on that account regardless of who the caller was — wrong
+ * by construction in a two-person household, and no identity check at all.
+ * Now it has to be stated, and the server refuses to start otherwise.
+ */
+function getUserId(): string {
+  const configured = process.env.BRECONTAS_MCP_USER_ID?.trim();
+  if (configured) {
+    const found = db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, configured))
+      .get();
+    if (found) return found.id;
+    throw new Error(
+      `BRECONTAS_MCP_USER_ID="${configured}" não corresponde a nenhum usuário.`,
+    );
+  }
+
+  const email = process.env.BRECONTAS_MCP_USER_EMAIL?.trim();
+  if (email) {
+    const found = db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.email, email))
+      .get();
+    if (found) return found.id;
+    throw new Error(
+      `BRECONTAS_MCP_USER_EMAIL="${email}" não corresponde a nenhum usuário.`,
+    );
+  }
+
+  throw new Error(
+    "Defina BRECONTAS_MCP_USER_ID ou BRECONTAS_MCP_USER_EMAIL: o servidor MCP escreve no histórico financeiro e precisa saber de quem.",
+  );
 }
 
 // ─── Tools ───
@@ -61,7 +91,7 @@ server.tool(
       return { content: [{ type: "text" as const, text: "Já processado (idempotente)" }] };
     }
 
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const id = generateId();
     db.insert(inboxItems).values({
       id,
@@ -95,7 +125,7 @@ server.tool(
       return { content: [{ type: "text" as const, text: "Já processado (idempotente)" }] };
     }
 
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const id = generateId();
     const centavos = Math.round(amount * 100);
 
@@ -148,7 +178,7 @@ server.tool(
     limit: z.number().default(20),
   },
   async ({ month, status, type, limit }) => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const conditions = [eq(transactions.userId, userId)];
 
     if (month) {
@@ -181,7 +211,7 @@ server.tool(
     account_name: z.string().optional().describe("Nome da conta (ou todas se omitido)"),
   },
   async ({ account_name }) => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const accs = await db.query.accounts.findMany({
       where: account_name
         ? and(eq(accounts.userId, userId), sql`LOWER(name) = LOWER(${account_name})`)
@@ -227,7 +257,7 @@ server.tool(
     month: z.string().describe("Mês no formato YYYY-MM"),
   },
   async ({ month }) => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const dateFrom = `${month}-01`;
     const dateTo = `${month}-31`;
 
@@ -285,7 +315,7 @@ server.tool(
   "Listar itens pendentes (inbox + transações)",
   {},
   async () => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
 
     const pendingInbox = await db.query.inboxItems.findMany({
       where: and(eq(inboxItems.userId, userId), eq(inboxItems.status, "pending")),
@@ -340,7 +370,7 @@ server.tool(
       return { content: [{ type: "text" as const, text: "Já processado (idempotente)" }] };
     }
 
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const updateData: Record<string, unknown> = {
       status: "reconciled",
       updatedByUserId: userId,
@@ -372,7 +402,7 @@ server.tool(
     limit: z.number().default(10),
   },
   async ({ query, limit }) => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
 
     const txResults = await db.query.transactions.findMany({
       where: and(
@@ -398,7 +428,7 @@ server.resource(
   "accounts://list",
   "accounts://list",
   async () => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const accs = await db.query.accounts.findMany({
       where: eq(accounts.userId, userId),
     });
@@ -417,7 +447,7 @@ server.resource(
   "inbox://pending",
   "inbox://pending",
   async () => {
-    const userId = getDefaultUserId();
+    const userId = getUserId();
     const items = await db.query.inboxItems.findMany({
       where: and(eq(inboxItems.userId, userId), eq(inboxItems.status, "pending")),
     });

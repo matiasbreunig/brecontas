@@ -9,6 +9,14 @@ export interface ParsedEntry {
   balanceAfter?: number; // centavos
   rawData: Record<string, string>;
   rowNumber: number;
+  /**
+   * Stable identifier the institution itself assigned to the line — the OFX
+   * FITID. When present it is what makes the entry unique, so two genuinely
+   * distinct movements with the same date, amount and text never collide.
+   */
+  externalId?: string;
+  /** Filled by finalizeEntries in the parser-factory. */
+  hash?: string;
 }
 
 export interface CsvTemplateConfig {
@@ -25,34 +33,76 @@ export interface CsvTemplateConfig {
   encoding?: string;
 }
 
-function parseDateToISO(dateStr: string, format: string): string {
+/**
+ * Build a date from day/month/year parts, or return null when the pieces are
+ * not a real date.
+ *
+ * Returning null rather than a malformed string matters: a footer row like
+ * "Total;;1.234,56" used to reach `.padStart` on `undefined` and throw, and the
+ * exception took the whole import down — every line lost because of one line of
+ * summary text. Two-digit years were also interpolated raw, producing dates
+ * like "25-03-05" that sorted before every real date.
+ */
+function buildISODate(day?: string, month?: string, year?: string): string | null {
+  if (!day || !month || !year) return null;
+
+  const d = Number(day);
+  const m = Number(month);
+  let y = Number(year);
+  if (!Number.isInteger(d) || !Number.isInteger(m) || !Number.isInteger(y)) return null;
+  if (d < 1 || d > 31 || m < 1 || m > 12) return null;
+
+  if (year.trim().length === 2) {
+    // Bank exports with 2-digit years: 70-99 are 1900s, everything else 2000s.
+    y = y >= 70 ? 1900 + y : 2000 + y;
+  }
+  if (y < 1900 || y > 2999) return null;
+
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function parseDateToISO(dateStr: string, format: string): string | null {
   dateStr = dateStr.trim();
+  if (!dateStr) return null;
 
   if (format === "yyyy-MM-dd") {
-    return dateStr;
+    return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : null;
   }
 
   if (format === "dd/MM/yyyy") {
     const [d, m, y] = dateStr.split("/");
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    return buildISODate(d, m, y);
   }
 
   if (format === "MM/dd/yyyy") {
     const [m, d, y] = dateStr.split("/");
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    return buildISODate(d, m, y);
   }
 
   if (format === "dd-MM-yyyy") {
     const [d, m, y] = dateStr.split("-");
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    return buildISODate(d, m, y);
   }
 
-  // Fallback: try to parse as ISO
-  return dateStr;
+  // Fallback: only accept something already ISO-shaped.
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : null;
 }
 
-export function generateEntryHash(date: string, amount: number, description: string): string {
-  const input = `${date}|${amount}|${description}`;
+/**
+ * Identity of a statement line, for deduplication.
+ *
+ * `discriminator` is what keeps two legitimate identical movements apart — the
+ * institution's own id (FITID) when the format provides one, otherwise the
+ * occurrence index within the file. Without it, two R$ 5,00 bus fares on the
+ * same day collapsed into one and the second was silently dropped.
+ */
+export function generateEntryHash(
+  date: string,
+  amount: number,
+  description: string,
+  discriminator = "",
+): string {
+  const input = `${date}|${amount}|${description}|${discriminator}`;
   return createHash("sha256").update(input).digest("hex").slice(0, 32);
 }
 
@@ -96,6 +146,10 @@ export function parseCsv(
     }
 
     const entryDate = parseDateToISO(dateStr, config.dateFormat);
+    // Not a date: a footer, a subtotal, a section header. Skip the line instead
+    // of throwing, which used to abort the whole file.
+    if (!entryDate) continue;
+
     const balanceAfter = config.balanceColumn
       ? parseAmount(row[config.balanceColumn])
       : undefined;

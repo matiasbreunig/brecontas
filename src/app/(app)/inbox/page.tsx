@@ -20,6 +20,7 @@ import {
 } from "@/components/responsive-dialog";
 import { FileUpload } from "@/components/file-upload";
 import { InferredField, InferredBadge, type FieldSource } from "@/components/inferred-field";
+import { CategoryCombobox } from "@/components/category-combobox";
 import { BeneficiaryCombobox } from "@/components/beneficiary-combobox";
 import { toast } from "sonner";
 import {
@@ -674,24 +675,12 @@ export default function InboxPage() {
                   <InferredBadge source={fieldStates.categoryId.source} confidence={fieldStates.categoryId.confidence} />
                 )}
               </Label>
-              <Select value={convertForm.categoryId} onValueChange={(v) => updateField("categoryId", v ?? "")}>
-                <SelectTrigger className="min-h-[44px]">
-                  {convertForm.categoryId ? (
-                    <span className="flex flex-1 text-left truncate">
-                      {(() => { const c = allCategories.find(c => c.id === convertForm.categoryId); return c ? `${c.icon} ${c.name}` : "Selecione"; })()}
-                    </span>
-                  ) : (
-                    <SelectValue placeholder="Selecione" />
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {allCategories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.icon} {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CategoryCombobox
+                categories={allCategories}
+                value={convertForm.categoryId}
+                onSelect={(id) => updateField("categoryId", id ?? "")}
+                placeholder="Buscar categoria..."
+              />
             </InferredField>
 
             <InferredField

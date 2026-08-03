@@ -259,27 +259,6 @@ CREATE TABLE `recurring_templates` (
 	FOREIGN KEY (`updated_by_user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
 
-CREATE TABLE `statement_entries` (
-	`id` text PRIMARY KEY NOT NULL,
-	`import_id` text NOT NULL,
-	`account_id` text,
-	`card_id` text,
-	`card_invoice_id` text,
-	`entry_date` text NOT NULL,
-	`amount` integer NOT NULL,
-	`raw_description` text NOT NULL,
-	`balance_after` integer,
-	`row_number` integer NOT NULL,
-	`raw_data` text,
-	`hash` text NOT NULL,
-	`transaction_id` text,
-	`status` text DEFAULT 'pending' NOT NULL,
-	`created_at` integer NOT NULL, `user_id` text NOT NULL,
-	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`card_id`) REFERENCES `cards`(`id`) ON UPDATE no action ON DELETE no action,
-	FOREIGN KEY (`card_invoice_id`) REFERENCES `card_invoices`(`id`) ON UPDATE no action ON DELETE no action
-);
-
 CREATE TABLE `tags` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -353,6 +332,49 @@ CREATE TABLE "transactions" (
 	FOREIGN KEY (`updated_by_user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
 
+CREATE TABLE "statement_entries" (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`import_id` text NOT NULL,
+	`account_id` text,
+	`card_id` text,
+	`card_invoice_id` text,
+	`entry_date` text NOT NULL,
+	`amount` integer NOT NULL,
+	`raw_description` text NOT NULL,
+	`balance_after` integer,
+	`row_number` integer NOT NULL,
+	`raw_data` text,
+	`hash` text NOT NULL,
+	`transaction_id` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`card_id`) REFERENCES `cards`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`card_invoice_id`) REFERENCES `card_invoices`(`id`) ON UPDATE no action ON DELETE no action
+);
+
 CREATE UNIQUE INDEX `tags_user_name_idx` ON `tags` (`user_id`,`name`);
 
 CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);
+
+CREATE UNIQUE INDEX `statement_entries_hash_scope_idx` ON `statement_entries` (`hash`,`account_id`,`card_id`);
+
+CREATE INDEX `statement_entries_import_idx` ON `statement_entries` (`import_id`);
+
+CREATE INDEX `statement_entries_user_date_idx` ON `statement_entries` (`user_id`,`entry_date`);
+
+CREATE INDEX `statement_entries_invoice_idx` ON `statement_entries` (`card_invoice_id`);
+
+CREATE INDEX `transactions_user_date_idx` ON `transactions` (`user_id`,`date`);
+
+CREATE INDEX `transactions_user_status_idx` ON `transactions` (`user_id`,`status`);
+
+CREATE INDEX `transactions_account_idx` ON `transactions` (`account_id`);
+
+CREATE INDEX `transactions_import_idx` ON `transactions` (`import_id`);
+
+CREATE INDEX `transactions_statement_entry_idx` ON `transactions` (`statement_entry_id`);
+
+CREATE INDEX `transactions_invoice_idx` ON `transactions` (`card_invoice_id`);

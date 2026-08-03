@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OptionSelect } from "@/components/ui/option-select";
+import { FormCategoryCombobox, FormBeneficiaryCombobox } from "@/components/form-combobox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -134,16 +135,11 @@ function CategoriesTab() {
                 </div>
                 <div className="space-y-2">
                   <Label>Grupo pai</Label>
-                  <OptionSelect
+                  <FormCategoryCombobox
                     name="parentId"
-                    defaultValue="__none__"
-                    options={[
-                      { value: "__none__", label: "Nenhum (raiz)" },
-                      ...parentOptions.map((p) => ({
-                        value: p.id,
-                        label: `${p.icon ?? ""} ${p.name}`.trim(),
-                      })),
-                    ]}
+                    categories={parentOptions}
+                    emptyLabel="Nenhum (raiz)"
+                    placeholder="Buscar grupo pai..."
                   />
                 </div>
               </div>
@@ -529,18 +525,9 @@ function BeneficiariesTab() {
               </div>
               <div className="space-y-2">
                 <Label>Categoria padrão</Label>
-                <OptionSelect
+                <FormCategoryCombobox
                   name="defaultCategoryId"
-                  defaultValue="__none__"
-                  options={[
-                    { value: "__none__", label: "Nenhuma" },
-                    ...(categories ?? [])
-                      .filter((c) => c.isActive)
-                      .map((cat) => ({
-                        value: cat.id,
-                        label: `${cat.icon ?? ""} ${cat.name}`.trim(),
-                      })),
-                  ]}
+                  categories={(categories ?? []).filter((c) => c.isActive)}
                 />
               </div>
               <div className="space-y-2">
@@ -876,30 +863,17 @@ function RulesTab() {
                 </div>
                 <div className="space-y-2">
                   <Label>Favorecido</Label>
-                  <OptionSelect
+                  <FormBeneficiaryCombobox
                     name="beneficiaryId"
-                    defaultValue="__none__"
-                    options={[
-                      { value: "__none__", label: "Nenhum" },
-                      ...(beneficiariesData ?? []).map((b) => ({ value: b.id, label: b.name })),
-                    ]}
+                    beneficiaries={beneficiariesData ?? []}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Categoria</Label>
-                    <OptionSelect
+                    <FormCategoryCombobox
                       name="categoryId"
-                      defaultValue="__none__"
-                      options={[
-                        { value: "__none__", label: "Nenhuma" },
-                        ...(categoriesData ?? [])
-                          .filter((c) => c.isActive)
-                          .map((cat) => ({
-                            value: cat.id,
-                            label: `${cat.icon ?? ""} ${cat.name}`.trim(),
-                          })),
-                      ]}
+                      categories={(categoriesData ?? []).filter((c) => c.isActive)}
                     />
                   </div>
                   <div className="space-y-2">

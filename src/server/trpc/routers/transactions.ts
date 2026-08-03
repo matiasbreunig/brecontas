@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../init";
 import { transactions, transactionTags } from "@/server/db/schema";
 import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
@@ -50,7 +51,9 @@ export const transactionsRouter = router({
         dateTo: z.string().optional(),
         dateField: z.enum(["date", "competenceDate"]).default("date"),
         isProjected: z.boolean().optional(),
-        limit: z.number().int().min(1).max(200).default(50),
+        // Raised from 200 so the "carregar mais" button can page through a
+        // busy month; a month for one household stays well inside this.
+        limit: z.number().int().min(1).max(1000).default(50),
         offset: z.number().int().min(0).default(0),
       }).default({ limit: 50, offset: 0, dateField: "date" as const })
     )
@@ -176,6 +179,32 @@ export const transactionsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, tagIds, ...data } = input;
+
+      // The transfer invariant was enforced on create but not here, so an
+      // auto-save could turn a row into a transfer with no destination — and
+      // the balance formula then subtracted it from the origin without ever
+      // crediting anywhere. Money simply vanished.
+      if (data.type !== undefined || data.accountId !== undefined || data.transferAccountId !== undefined) {
+        const current = await ctx.db.query.transactions.findFirst({
+          where: and(eq(transactions.id, id), eq(transactions.userId, ctx.userId)),
+          columns: { type: true, accountId: true, transferAccountId: true },
+        });
+        if (!current) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transação não encontrada" });
+        }
+
+        const type = data.type ?? current.type;
+        const accountId = data.accountId !== undefined ? data.accountId : current.accountId;
+        const transferAccountId =
+          data.transferAccountId !== undefined ? data.transferAccountId : current.transferAccountId;
+
+        if (type === "transfer" && (!accountId || !transferAccountId || accountId === transferAccountId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Transferências exigem conta de origem e destino diferentes",
+          });
+        }
+      }
 
       await ctx.db
         .update(transactions)

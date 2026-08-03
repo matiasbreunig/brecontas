@@ -57,16 +57,36 @@ function matchesRule(
   }
 }
 
-async function matchReconciliationRules(
-  text: string,
-  userId: string
-): Promise<HistoryMatchResult> {
-  const rules = await db
+
+// ── Loaders (memoised per import via MatchContext) ──
+
+function loadRules(userId: string) {
+  return db
     .select()
     .from(reconciliationRules)
     .where(eq(reconciliationRules.userId, userId))
     .orderBy(desc(reconciliationRules.priority), desc(reconciliationRules.hitCount))
     .all();
+}
+
+function loadBeneficiaries(userId: string) {
+  return db.select().from(beneficiaries).where(eq(beneficiaries.userId, userId)).all();
+}
+
+function loadAccounts(userId: string) {
+  return db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.isActive, true)))
+    .all();
+}
+
+async function matchReconciliationRules(
+  text: string,
+  userId: string,
+  ctx: MatchContext
+): Promise<HistoryMatchResult> {
+  const rules = await ctx.rules();
 
   for (const rule of rules) {
     if (matchesRule(text, rule.pattern, rule.matchType as "exact" | "contains" | "regex")) {
@@ -114,16 +134,11 @@ async function matchReconciliationRules(
 // ─── Beneficiary Fuzzy Matching ─────────────────────────────────────
 async function matchBeneficiary(
   text: string,
-  userId: string
+  userId: string,
+  ctx: MatchContext
 ): Promise<Pick<HistoryMatchResult, "beneficiaryId" | "beneficiaryName" | "categoryId" | "tagIds"> | undefined> {
   const normText = normalize(text);
-
-  // Get all beneficiaries for the user
-  const allBeneficiaries = await db
-    .select()
-    .from(beneficiaries)
-    .where(eq(beneficiaries.userId, userId))
-    .all();
+  const allBeneficiaries = await ctx.beneficiaries();
 
   type ScoredMatch = {
     id: string;
@@ -199,15 +214,10 @@ async function matchBeneficiary(
 // ─── Account Inference from Keywords ────────────────────────────────
 async function matchAccount(
   text: string,
-  userId: string
+  ctx: MatchContext
 ): Promise<ParsedField<string> | undefined> {
   const normText = normalize(text);
-
-  const userAccounts = await db
-    .select()
-    .from(accounts)
-    .where(and(eq(accounts.userId, userId), eq(accounts.isActive, true)))
-    .all();
+  const userAccounts = await ctx.accounts();
 
   for (const acc of userAccounts) {
     // Match by institution name
@@ -229,7 +239,7 @@ async function matchAccount(
 }
 
 // ─── Most Frequent Defaults ─────────────────────────────────────────
-async function getFrequentDefaults(
+async function loadFrequentDefaults(
   userId: string
 ): Promise<{
   accountId?: ParsedField<string>;
@@ -395,18 +405,71 @@ async function matchSimilarTransactions(
 }
 
 // ─── Main History Matcher ───────────────────────────────────────────
+
+// ============================================================================
+// PER-IMPORT CONTEXT
+// ============================================================================
+
+/**
+ * Data that is the same for every line of a given import.
+ *
+ * matchFromHistory used to re-read the rules, the beneficiaries (parsing their
+ * aliases JSON again each time), the accounts and the 90-day frequency
+ * aggregates **once per imported line** — about seven queries a line, three of
+ * them full scans. Loading them once per import turns that into a constant.
+ *
+ * The promises are memoised, not awaited, so nothing is fetched until the first
+ * line actually needs it.
+ */
+export interface MatchContext {
+  rules: () => ReturnType<typeof loadRules>;
+  beneficiaries: () => ReturnType<typeof loadBeneficiaries>;
+  accounts: () => ReturnType<typeof loadAccounts>;
+  frequentDefaults: () => ReturnType<typeof loadFrequentDefaults>;
+}
+
+/**
+ * Caches the first result. Works for both shapes here: the better-sqlite3
+ * queries are synchronous and return arrays, while the aggregate loader is
+ * async and returns a promise — caching the promise is equally correct.
+ */
+function memo<T>(load: () => T): () => T {
+  let cached: T;
+  let loaded = false;
+  return () => {
+    if (!loaded) {
+      cached = load();
+      loaded = true;
+    }
+    return cached;
+  };
+}
+
+export function createMatchContext(userId: string): MatchContext {
+  return {
+    rules: memo(() => loadRules(userId)),
+    beneficiaries: memo(() => loadBeneficiaries(userId)),
+    accounts: memo(() => loadAccounts(userId)),
+    frequentDefaults: memo(() => loadFrequentDefaults(userId)),
+  };
+}
+
 export async function matchFromHistory(
   text: string,
   userId: string,
-  amount?: number // in centavos
+  amount?: number, // in centavos
+  /** Reuse across the lines of one import — see createMatchContext. */
+  context?: MatchContext,
 ): Promise<HistoryMatchResult> {
+  const ctx = context ?? createMatchContext(userId);
+
   // Run all matchers in parallel
   const [ruleMatch, beneficiaryMatch, accountMatch, frequentDefaults, similarMatch] =
     await Promise.all([
-      matchReconciliationRules(text, userId),
-      matchBeneficiary(text, userId),
-      matchAccount(text, userId),
-      getFrequentDefaults(userId),
+      matchReconciliationRules(text, userId, ctx),
+      matchBeneficiary(text, userId, ctx),
+      matchAccount(text, ctx),
+      ctx.frequentDefaults(),
       matchSimilarTransactions(text, userId, amount),
     ]);
 

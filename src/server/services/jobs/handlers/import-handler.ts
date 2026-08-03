@@ -5,7 +5,7 @@ import { generateId } from "@/lib/id";
 import { nowTimestamp, todayISO } from "@/lib/date";
 import { parseFile, type EntryEnrichment } from "@/server/services/parsers/parser-factory";
 import { generateEntryHash } from "@/server/services/parsers/csv-parser";
-import { matchFromHistory } from "@/server/services/inference/history-matcher";
+import { matchFromHistory, createMatchContext } from "@/server/services/inference/history-matcher";
 import { classifyBatch } from "@/server/services/ai/classifier";
 
 /** The db handle or a transaction handle — same query surface. */
@@ -62,6 +62,15 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
       templateConfig as Parameters<typeof parseFile>[2],
     );
 
+    // A non-empty file that yields nothing means the wrong template was picked
+    // (bank misdetected, unexpected columns). Completing "successfully" with
+    // zero rows looked like an empty statement and hid the real problem.
+    if (result.entries.length === 0 && content.trim().length > 0) {
+      throw new Error(
+        "Nenhum lançamento foi reconhecido no arquivo. Verifique se o banco e o formato estão corretos.",
+      );
+    }
+
     let processedRows = 0;
     let duplicatesSkipped = 0;
     let transactionsCreated = 0;
@@ -113,7 +122,9 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
     // livre de I/O assíncrono — é o que torna o import atômico.
     const planned = result.entries.map((entry) => ({
       entry,
-      hash: generateEntryHash(entry.entryDate, entry.amount, entry.rawDescription),
+      // Calculated by finalizeEntries, which owns the identity rule (FITID or
+      // occurrence index). Recomputing it here would drop that discriminator.
+      hash: entry.hash ?? generateEntryHash(entry.entryDate, entry.amount, entry.rawDescription),
       entryId: generateId(),
       transactionId: generateId(),
       enrichment: enrichmentMap.get(entry.rowNumber),
@@ -122,12 +133,15 @@ export async function handleImportJob(payload: ImportJobPayload): Promise<Import
       classified: false,
     }));
 
+    // Loaded once for the whole import instead of once per line.
+    const matchContext = createMatchContext(userId);
+
     for (const plan of planned) {
       const description = plan.enrichment?.cleanDescription || plan.entry.rawDescription;
 
       // ── Nível 1: Rules + Aliases + History match (grátis) ──
       try {
-        const historyMatch = await matchFromHistory(description, userId, plan.entry.amount);
+        const historyMatch = await matchFromHistory(description, userId, plan.entry.amount, matchContext);
 
         if (historyMatch.beneficiaryId && historyMatch.beneficiaryId.confidence >= 0.7) {
           plan.updates.beneficiaryId = historyMatch.beneficiaryId.value;

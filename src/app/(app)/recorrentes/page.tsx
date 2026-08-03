@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OptionSelect } from "@/components/ui/option-select";
+import { FormCategoryCombobox, FormBeneficiaryCombobox } from "@/components/form-combobox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
@@ -194,29 +195,19 @@ export default function RecorrentesPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Categoria</Label>
-                    <Select name="categoryId">
-                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                      <SelectContent>
-                        {categories?.filter(c => c.isActive).map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            {cat.icon} {cat.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormCategoryCombobox
+                      name="categoryId"
+                      categories={(categories ?? []).filter((c) => c.isActive)}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Favorecido</Label>
-                    <Select name="beneficiaryId">
-                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                      <SelectContent>
-                        {beneficiariesData?.map((b) => (
-                          <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormBeneficiaryCombobox
+                      name="beneficiaryId"
+                      beneficiaries={beneficiariesData ?? []}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Pagamento</Label>

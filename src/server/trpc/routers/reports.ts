@@ -2,6 +2,8 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../init";
 import { transactions, categories, cardInvoices } from "@/server/db/schema";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
+import { toISODate } from "@/lib/date";
+import { incomeSql, expenseSql, isRealTransaction } from "@/server/services/money/ledger";
 
 const dateFieldSchema = z.enum(["date", "competenceDate"]).default("date");
 
@@ -72,8 +74,8 @@ export const reportsRouter = router({
       return ctx.db
         .select({
           date: sql<string>`${dateCol}`.as("date_val"),
-          income: sql<number>`COALESCE(SUM(CASE WHEN type = 'income' OR type = 'refund' THEN amount ELSE 0 END), 0)`,
-          expense: sql<number>`COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)`,
+          income: incomeSql,
+          expense: expenseSql,
         })
         .from(transactions)
         .where(
@@ -99,43 +101,51 @@ export const reportsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const dateCol = getDateCol(input.dateField);
+      // One grouped query instead of one full scan per month. With no index on
+      // date, six months meant six scans of the whole table, in sequence, on a
+      // synchronous driver.
       const now = new Date();
-      const results = [];
+      const firstMonth = new Date(now.getFullYear(), now.getMonth() - (input.months - 1), 1);
+      const dateFrom = toISODate(firstMonth);
+      const dateTo = toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
 
-      for (let i = 0; i < input.months; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const dateFrom = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        const dateTo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${lastDay}`;
-
-        const stats = ctx.db
-          .select({
-            income: sql<number>`COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)`,
-            expense: sql<number>`COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)`,
-            count: sql<number>`COUNT(*)`,
-          })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.userId, ctx.userId),
-              sql`${dateCol} >= ${dateFrom}`,
-              sql`${dateCol} <= ${dateTo}`,
-              sql`${transactions.status} != 'discarded'`,
-              eq(transactions.isProjected, false)
-            )
+      const rows = ctx.db
+        .select({
+          month: sql<string>`substr(${dateCol}, 1, 7)`,
+          income: incomeSql,
+          expense: expenseSql,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.userId, ctx.userId),
+            sql`${dateCol} >= ${dateFrom}`,
+            sql`${dateCol} <= ${dateTo}`,
+            isRealTransaction
           )
-          .get();
+        )
+        .groupBy(sql`substr(${dateCol}, 1, 7)`)
+        .all();
 
+      const byMonth = new Map(rows.map((r) => [r.month, r]));
+
+      // Months with no movement still have to appear, or the chart has holes.
+      const results = [];
+      for (let i = input.months - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = toISODate(d).slice(0, 7);
+        const row = byMonth.get(key);
         results.push({
-          month: dateFrom.slice(0, 7),
+          month: key,
           label: d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
-          income: stats?.income ?? 0,
-          expense: stats?.expense ?? 0,
-          count: stats?.count ?? 0,
+          income: row?.income ?? 0,
+          expense: row?.expense ?? 0,
+          count: row?.count ?? 0,
         });
       }
 
-      return results.reverse();
+      return results;
     }),
 
   // Upcoming invoices

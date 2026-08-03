@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { decodeTextFile } from "@/lib/decode-text-file";
 import { formatBRL } from "@/lib/money";
 import { formatDateBR } from "@/lib/date";
 import { Button } from "@/components/ui/button";
@@ -132,6 +133,7 @@ export function ImportWizard({ onComplete, onClose, compact = false }: ImportWiz
 
     // Binary formats → base64; text formats → read as text
     const ext = selectedFile.name.toLowerCase().split(".").pop();
+    // eslint-disable-next-line prefer-const
     let content: string;
     if (ext === "xls" || ext === "xlsx" || ext === "pdf") {
       const buffer = await selectedFile.arrayBuffer();
@@ -139,7 +141,7 @@ export function ImportWizard({ onComplete, onClose, compact = false }: ImportWiz
         new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
       );
     } else {
-      content = await selectedFile.text();
+      content = decodeTextFile(await selectedFile.arrayBuffer());
     }
     setFileContent(content);
     detectMutation.mutate({ filename: selectedFile.name, content });

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 
 // ============================================================================
@@ -165,7 +165,14 @@ export const statementEntries = sqliteTable("statement_entries", {
   transactionId: text("transaction_id"),
   status: text("status", { enum: ["pending", "matched", "skipped", "duplicate"] }).notNull().default("pending"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => [
+  // The dedup lookup runs once per imported line; without an index it was a
+  // full scan per line, making the check O(linhas x historico).
+  uniqueIndex("statement_entries_hash_scope_idx").on(table.hash, table.accountId, table.cardId),
+  index("statement_entries_import_idx").on(table.importId),
+  index("statement_entries_user_date_idx").on(table.userId, table.entryDate),
+  index("statement_entries_invoice_idx").on(table.cardInvoiceId),
+]);
 
 // ============================================================================
 // TRANSACTIONS
@@ -205,7 +212,17 @@ export const transactions = sqliteTable("transactions", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedByUserId: text("updated_by_user_id").references(() => users.id),
   updatedAt: integer("updated_at", { mode: "timestamp" }),
-});
+}, (table) => [
+  // Every listing filters by user and date and orders by date; the tabs filter
+  // by status; the import and reconciliation paths look rows up by import and
+  // by statement entry. None of it had an index.
+  index("transactions_user_date_idx").on(table.userId, table.date),
+  index("transactions_user_status_idx").on(table.userId, table.status),
+  index("transactions_account_idx").on(table.accountId),
+  index("transactions_import_idx").on(table.importId),
+  index("transactions_statement_entry_idx").on(table.statementEntryId),
+  index("transactions_invoice_idx").on(table.cardInvoiceId),
+]);
 
 // ============================================================================
 // TRANSACTION TAGS

@@ -74,16 +74,24 @@ function detectInstitution(content: string, filename: string, ofxMetadata?: OfxM
     if (fromBankId) return fromBankId;
   }
 
-  // Then: content/filename heuristics
-  const lower = (content + filename).toLowerCase();
+  // Then: content/filename heuristics.
+  //
+  // Anchored on word boundaries. Bare substrings matched far too eagerly:
+  // "inter" fired on "TRANSFERENCIA INTERNA" and "INTERNET", picking the Banco
+  // Inter template for a file from another bank — whose columns then matched
+  // nothing, so the import "succeeded" with zero rows. "bb" matched any word
+  // containing those two letters.
+  const haystack = (content + " " + filename).toLowerCase();
+  const has = (...patterns: string[]) =>
+    patterns.some((p) => new RegExp(`\\b${p}\\b`, "i").test(haystack));
 
-  if (lower.includes("nubank") || lower.includes("nu pagamentos")) return "nubank";
-  if (lower.includes("inter") || lower.includes("banco inter")) return "inter";
-  if (lower.includes("itaú") || lower.includes("itau")) return "itau";
-  if (lower.includes("bradesco")) return "bradesco";
-  if (lower.includes("caixa")) return "caixa";
-  if (lower.includes("santander")) return "santander";
-  if (lower.includes("bb") || lower.includes("banco do brasil")) return "bb";
+  if (has("nubank", "nu pagamentos")) return "nubank";
+  if (has("banco inter", "inter s\\.?a")) return "inter";
+  if (has("itaú", "itau", "itaú unibanco")) return "itau";
+  if (has("bradesco")) return "bradesco";
+  if (has("caixa", "caixa econômica", "caixa economica")) return "caixa";
+  if (has("santander")) return "santander";
+  if (has("banco do brasil", "bb s\\.?a")) return "bb";
 
   return undefined;
 }
@@ -93,10 +101,18 @@ function detectInstitution(content: string, filename: string, ofxMetadata?: OfxM
 // ============================================================================
 
 function detectMode(content: string, format: ImportFormat, ofxMetadata?: OfxMetadata): ImportMode {
-  // OFX: check ACCTTYPE
-  if (format === "ofx" && ofxMetadata?.accountType) {
-    if (ofxMetadata.accountType.toUpperCase() === "CREDITCARD") return "card_invoice";
-    return "bank_statement";
+  if (format === "ofx") {
+    // A spec-compliant credit card OFX carries <CCACCTFROM>, which has no
+    // <ACCTTYPE> inside it — so keying only on ACCTTYPE silently classified
+    // every card statement as a bank statement, skipping the invoice pipeline
+    // (no instalments, no IOF/fee handling, no invoice created).
+    if (/<(CCACCTFROM|CCSTMTRS|CREDITCARDMSGSRSV1)\b/i.test(content)) {
+      return "card_invoice";
+    }
+    if (ofxMetadata?.accountType) {
+      if (ofxMetadata.accountType.toUpperCase() === "CREDITCARD") return "card_invoice";
+      return "bank_statement";
+    }
   }
 
   // CSV: check headers and data patterns
@@ -304,6 +320,8 @@ function finalizeEntries(
   opts: { mode: ImportMode; debitPositive: boolean },
 ): (ParsedEntry & { hash: string })[] {
   const finalized: (ParsedEntry & { hash: string })[] = [];
+  /** How many times this exact (date, amount, text) has already appeared here. */
+  const seen = new Map<string, number>();
 
   for (const entry of rawEntries) {
     if (opts.mode === "card_invoice") {
@@ -313,10 +331,22 @@ function finalizeEntries(
 
     const amount = opts.debitPositive ? -entry.amount : entry.amount;
 
+    // Prefer the institution's own id; otherwise fall back to the position
+    // among identical lines, so two real R$ 5,00 bus fares on the same day both
+    // survive — and re-importing the same file still yields the same hashes,
+    // because the order is the file's order.
+    let discriminator = entry.externalId ?? "";
+    if (!discriminator) {
+      const key = `${entry.entryDate}|${amount}|${entry.rawDescription}`;
+      const occurrence = seen.get(key) ?? 0;
+      seen.set(key, occurrence + 1);
+      discriminator = `#${occurrence}`;
+    }
+
     finalized.push({
       ...entry,
       amount,
-      hash: generateEntryHash(entry.entryDate, amount, entry.rawDescription),
+      hash: generateEntryHash(entry.entryDate, amount, entry.rawDescription, discriminator),
     });
   }
 

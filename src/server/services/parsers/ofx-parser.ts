@@ -117,9 +117,10 @@ export function extractOfxMetadata(content: string): OfxMetadata {
 
 export function resolveInstitutionFromBankId(bankId: string | null): string | undefined {
   if (!bankId) return undefined;
-  // Normalize: remove leading zeros except last 4 chars
-  const normalized = bankId.replace(/^0+/, "0");
-  return BANK_ID_MAP[bankId] || BANK_ID_MAP[normalized] || undefined;
+  // The map is keyed with the 4-digit COMPE code ("0341"), so pad instead of
+  // stripping zeros: Itaú emits <BANKID>341, which never matched before.
+  const padded = bankId.trim().padStart(4, "0");
+  return BANK_ID_MAP[bankId] || BANK_ID_MAP[padded] || undefined;
 }
 
 export function parseOfx(content: string): {
@@ -143,6 +144,9 @@ export function parseOfx(content: string): {
       rawDescription: description,
       rawData: trn as unknown as Record<string, string>,
       rowNumber: index + 1,
+      // The institution's own id for this movement — exactly what OFX provides
+      // it for. It was captured and thrown away before.
+      externalId: trn.FITID || undefined,
     };
   });
 

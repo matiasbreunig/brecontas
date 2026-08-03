@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useState, useMemo, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useMonth } from "@/hooks/use-month";
@@ -137,6 +138,7 @@ export default function TransacoesPage() {
   const [showImport, setShowImport] = useState(false);
   const [showNewTx, setShowNewTx] = useState(false);
   const [dateField, setDateField] = useState<"date" | "competenceDate">("date");
+  const [pageSize, setPageSize] = useState(200);
 
   // Month context
   const { month, dateFrom, dateTo, prevMonth, nextMonth, isCurrentMonth, goToToday } = useMonth();
@@ -173,7 +175,7 @@ export default function TransacoesPage() {
     paymentMethod: filters.paymentMethod as "pix" | "debit" | "credit" | "transfer" | "boleto" | "cash" | "other" | undefined,
     amountMin: filters.amountMin,
     amountMax: filters.amountMax,
-    limit: 200,
+    limit: pageSize,
   });
 
   const { data: counts } = trpc.transactions.statusCounts.useQuery({ dateFrom, dateTo, dateField });
@@ -708,9 +710,24 @@ export default function TransacoesPage() {
 
       {/* Result count */}
       {txData && !isLoading && dateGroups.length > 0 && (
-        <p className="text-xs text-muted-foreground text-center tabular-nums">
-          {filteredItems.length} transação{filteredItems.length !== 1 ? "ões" : ""} neste mês
-        </p>
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-xs text-muted-foreground text-center tabular-nums">
+            {filteredItems.length} de {txData.total} transação
+            {txData.total !== 1 ? "ões" : ""} neste mês
+          </p>
+          {/* The page used to stop at 200 with no hint that anything was
+              missing — and the client-side search only ever saw those 200. */}
+          {txData.total > txData.items.length && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPageSize((n) => n + 200)}
+              className="text-xs"
+            >
+              Carregar mais {Math.min(200, txData.total - txData.items.length)}
+            </Button>
+          )}
+        </div>
       )}
 
       {/* ================================================================ */}
@@ -826,7 +843,7 @@ interface TransactionRowProps {
   onCreateTag: (name: string) => Promise<string>;
 }
 
-function TransactionRow({
+function TransactionRowImpl({
   tx,
   tab,
   expanded,
@@ -1039,6 +1056,15 @@ function TransactionRow({
   );
 }
 
+/**
+ * Memoised: the row is rendered up to a few hundred times, and every refetch or
+ * page-level state change (expanding a row, typing in the search bar) used to
+ * re-render all of them, badges and icons included. The callbacks below are
+ * created per row by the parent, so they are compared by identity — the parent
+ * keeps them stable via useCallback.
+ */
+const TransactionRow = React.memo(TransactionRowImpl);
+
 // ============================================================================
 // TRANSACTION EDIT PANEL (inline expansion)
 // ============================================================================
@@ -1076,8 +1102,16 @@ function TransactionEditPanel({
 }: TransactionEditPanelProps) {
   const utils = trpc.useUtils();
   const updateTx = trpc.transactions.update.useMutation({
-    onSuccess: () => {
-      utils.transactions.invalidate();
+    // Scoped: invalidating the whole `transactions` namespace refetched the
+    // list, the status counters and the stats on every pause in typing.
+    onSuccess: (_result, variables) => {
+      utils.transactions.list.invalidate();
+      // Only a status change moves rows between tabs and shifts the totals.
+      // Refreshing the counters on every keystroke was pure waste.
+      if (variables.status !== undefined) {
+        utils.transactions.statusCounts.invalidate();
+        utils.transactions.stats.invalidate();
+      }
     },
   });
 
