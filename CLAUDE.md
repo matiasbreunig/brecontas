@@ -46,6 +46,43 @@ Components use `render` prop, NOT `asChild`. Example:
 </SelectTrigger>
 ```
 
+### Refund abates expense, never counts as income
+
+A refund reverses a purchase, so it reduces the expense it belongs to. The rule
+lives in `src/server/services/money/ledger.ts` (`incomeSql`, `expenseSql`,
+`balanceDeltaSql`) — import from there instead of writing another
+`SUM(CASE WHEN type = ...)`, which is how the three report endpoints ended up
+disagreeing with each other about the same month.
+
+### Dates are calendar dates in the domain's timezone
+
+The container runs with `TZ=America/Sao_Paulo`. Never use
+`toISOString().split("T")[0]` for a calendar date: it is UTC, so anything logged
+after 21:00 lands on the next day. Use `todayISO()`, `toISODate()`,
+`parseISODate()` and `addDaysISO()` from `@/lib/date`. Note that
+`new Date("2026-01-15")` is UTC midnight — `parseISODate` is the local-midnight
+equivalent.
+
+### One owner for the money sign
+
+Parsers stay faithful to the file and emit the amount exactly as printed.
+`finalizeEntries` in `parser-factory.ts` applies the convention once — negative
+means money leaves — drops the skipped lines and only then computes the hash.
+Never add a `Math.abs` or a sign flip inside a parser.
+
+### Statement line identity
+
+The dedup hash is `date|amount|description|discriminator`, where the
+discriminator is the institution's own id (OFX FITID) or the occurrence index
+within the file. Two identical movements on the same day are two movements.
+
+### Testing
+
+`npm test` runs vitest. `test-data/schema.sql` is a snapshot of the live schema
+used to build throwaway databases — refresh it after a schema change. The single
+committed drizzle migration is intentionally stale: schema changes go through
+`drizzle-kit push`, per the note above about direct DB changes.
+
 ### Money in centavos
 All amounts are integers (centavos). R$ 49.90 = `4990`. Use `formatBRL()` from `@/lib/money` for display.
 

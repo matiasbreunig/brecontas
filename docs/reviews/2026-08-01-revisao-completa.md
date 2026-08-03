@@ -125,22 +125,16 @@ via trigger do SQLite.
 
 ## Aberto
 
-- **N+1 do `matchFromHistory`**: ~7 queries por linha importada, três delas
-  varreduras completas. Inofensivo com o histórico vazio; o pré-carregamento de
-  contexto por import resolve.
-- **Fila de jobs sem consumidor**: `services/jobs/queue.ts` tem enqueue, retry e
-  claim atômico, e `dequeueJob` não tem um único chamador. Enquanto não houver
-  worker, `classifyBatch` segue fire-and-forget — mas agora a falha deixa rastro
-  no `errorMessage` do import.
-- **Semântica de estorno nos relatórios**: `dailySpending` conta `refund` como
-  receita, `monthComparison` não, e `byCategory` nem aceita no enum. Decidir a
-  regra e escrever no CLAUDE.md antes de implementar.
-- **Endpoints sem chamador na UI** — `createTransfer` (debita as duas contas por
-  usar o modelo antigo de par), `convertEntries` e `quickConvert`. Apagar é
-  melhor que consertar.
-- **Servidor MCP sem autenticação**: personifica o primeiro usuário da tabela.
-  Transporte stdio, alcance local — só importa se voltar a ser usado.
-- **Paginação além de 200 e memoização das linhas**: otimização prematura num
-  banco vazio; refazer com volume real.
+Tudo o que as duas revisões apontaram foi aplicado. Restam decisões de operação,
+não defeitos:
+
+- **Fila de jobs sem worker**: `services/jobs/queue.ts` tem enqueue, retry e
+  claim atômico, e `dequeueJob` continua sem chamador. `classifyBatch` segue
+  fire-and-forget — enfileirar sem um worker faria a classificação nunca rodar.
+  A falha, porém, já deixa rastro no `errorMessage` do import. Construir o
+  worker é uma funcionalidade nova, não uma correção.
 - **Saldos iniciais das contas estão zerados** — conferir contra o extrato antes
   do primeiro import de verdade.
+- **Tornar o repositório privado** — depende de acesso ao GitHub.
+- **Rotacionar o token `gho_` que estava embutido no remote do infra-casa** — o
+  remote passou a usar SSH, mas o token já esteve em texto claro no disco.
